@@ -1,127 +1,83 @@
 use tauri::{Manager, Runtime, WebviewWindow};
+
 #[cfg(target_os = "macos")]
-use thiserror::Error;
+use tauri::{Emitter, AppHandle};
 
 #[cfg(target_os = "macos")]
 use tauri_nspanel::{
-    tauri_panel, CollectionBehavior, ManagerExt, PanelHandle, PanelLevel, StyleMask,
-    WebviewWindowExt as WebviewPanelExt,
+    objc_id::ShareId,
+    panel_delegate,
+    raw_nspanel::RawNSPanel,
+    ManagerExt, WebviewWindowExt as NsPanelExt,
 };
 
 pub const MAIN_WINDOW_LABEL: &str = "main";
 
 #[cfg(target_os = "macos")]
-tauri_panel! {
-    panel!(YoinkPanel {
-        config: {
-            can_become_key_window: true,
-            is_floating_panel: true,
-        }
-    })
-
-    panel_event!(YoinkPanelEventHandler {
-        window_did_become_key(notification: &NSNotification) -> (),
-        window_did_resign_key(notification: &NSNotification) -> (),
-    })
-}
-
-#[cfg(target_os = "macos")]
-type TauriError = tauri::Error;
-
-#[cfg(target_os = "macos")]
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("Unable to convert window to panel")]
-    Panel,
-    #[error("Unable to find panel: {0}")]
-    PanelNotFound(String),
-    #[error("Monitor with cursor not found")]
-    MonitorNotFound,
-}
-
-#[cfg(target_os = "macos")]
-pub trait WebviewWindowExt<R: Runtime> {
-    fn to_yoink_panel(&self) -> tauri::Result<PanelHandle<R>>;
+pub trait WebviewWindowExt {
+    fn to_yoink_panel(&self) -> tauri::Result<ShareId<RawNSPanel>>;
     fn center_at_cursor_monitor(&self) -> tauri::Result<()>;
 }
 
 #[cfg(target_os = "macos")]
-impl<R: Runtime> WebviewWindowExt<R> for WebviewWindow<R> {
-    fn to_yoink_panel(&self) -> tauri::Result<PanelHandle<R>> {
-        // Convert window to panel
-        let panel = self
-            .to_panel::<YoinkPanel<R>>()
-            .map_err(|_| TauriError::Anyhow(Error::Panel.into()))?;
+impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
+    fn to_yoink_panel(&self) -> tauri::Result<ShareId<RawNSPanel>> {
+        let panel = self.to_panel()?;
 
-        // Set panel level to floating
-        panel.set_level(PanelLevel::Floating.value());
+        // Set panel level to floating (NSFloatingWindowLevel = 5)
+        panel.set_level(5);
 
-        // Set collection behavior
-        panel.set_collection_behavior(
-            CollectionBehavior::new()
-                .full_screen_auxiliary()
-                .move_to_active_space()
-                .transient()
-                .value(),
-        );
+        // Set collection behavior for proper space handling
+        // NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary
+        panel.set_collection_behaviour(1 << 0 | 1 << 8);
 
-        // Non-activating panel style
-        panel.set_style_mask(StyleMask::empty().nonactivating_panel().resizable().into());
+        // Set as floating panel
+        panel.set_floating_panel(true);
 
-        // Setup event handlers
-        let handler = YoinkPanelEventHandler::new();
-
-        handler.window_did_become_key(move |_| {
-            log::info!("panel became key window");
+        // Setup delegate for event handling
+        let app_handle = self.app_handle().clone();
+        let delegate = panel_delegate!(YoinkPanelDelegate {
+            window_did_resign_key
         });
 
-        let app_handle = self.app_handle().clone();
-        handler.window_did_resign_key(move |_| {
-            log::info!("panel resigned key window");
-
-            // Hide panel when it loses focus
-            if let Ok(panel) = app_handle.get_webview_panel(MAIN_WINDOW_LABEL) {
-                if panel.is_visible() {
-                    panel.hide();
-                    let _ = app_handle.emit("panel-hidden", ());
+        delegate.set_listener(Box::new(move |delegate_name: String| {
+            if delegate_name == "window_did_resign_key" {
+                log::info!("panel resigned key window");
+                // Hide panel when it loses focus
+                if let Ok(panel) = app_handle.get_webview_panel(MAIN_WINDOW_LABEL) {
+                    if panel.is_visible() {
+                        panel.order_out(None);
+                        let _ = app_handle.emit("panel-hidden", ());
+                    }
                 }
             }
-        });
+        }));
 
-        panel.set_event_handler(Some(handler.as_ref()));
+        panel.set_delegate(delegate);
 
         Ok(panel)
     }
 
     fn center_at_cursor_monitor(&self) -> tauri::Result<()> {
-        use tauri_nspanel::cocoa::foundation::{NSPoint, NSRect};
-
+        // Get monitor with cursor
         let monitor = monitor::get_monitor_with_cursor()
-            .ok_or(TauriError::Anyhow(Error::MonitorNotFound.into()))?;
+            .ok_or_else(|| tauri::Error::Anyhow("Monitor with cursor not found".into()))?;
 
-        let monitor_scale_factor = monitor.scale_factor();
-        let monitor_size = monitor.size().to_logical::<f64>(monitor_scale_factor);
-        let monitor_position = monitor.position().to_logical::<f64>(monitor_scale_factor);
+        let scale = monitor.scale_factor();
+        let monitor_size = monitor.size().to_logical::<f64>(scale);
+        let monitor_pos = monitor.position().to_logical::<f64>(scale);
 
-        let panel = self
-            .get_webview_panel(self.label())
-            .map_err(|_| TauriError::Anyhow(Error::PanelNotFound(self.label().into()).into()))?;
+        // Get window size
+        let window_size = self.outer_size()
+            .map_err(|e| tauri::Error::Anyhow(e.to_string().into()))?
+            .to_logical::<f64>(scale);
 
-        let panel = panel.as_panel();
-        let panel_frame = panel.frame();
+        // Calculate centered position (slightly above center)
+        let x = monitor_pos.x + (monitor_size.width - window_size.width) / 2.0;
+        let y = monitor_pos.y + (monitor_size.height - window_size.height) / 2.0 - 50.0;
 
-        let rect = NSRect {
-            origin: NSPoint {
-                x: (monitor_position.x + (monitor_size.width / 2.0))
-                    - (panel_frame.size.width / 2.0),
-                y: (monitor_position.y + (monitor_size.height / 2.0))
-                    - (panel_frame.size.height / 2.0)
-                    + 100.0, // Slightly above center
-            },
-            size: panel_frame.size,
-        };
-
-        panel.setFrame_display(rect, true);
+        self.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(x, y)))
+            .map_err(|e| tauri::Error::Anyhow(e.to_string().into()))?;
 
         Ok(())
     }
@@ -237,6 +193,7 @@ pub fn set_window_blur<R: Runtime>(_window: &WebviewWindow<R>, _enabled: bool) -
 pub async fn show_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
+        use crate::window::WebviewWindowExt;
         if let Ok(panel) = app.get_webview_panel(MAIN_WINDOW_LABEL) {
             if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
                 let _ = window.center_at_cursor_monitor();
@@ -260,7 +217,7 @@ pub async fn hide_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), Str
     #[cfg(target_os = "macos")]
     {
         if let Ok(panel) = app.get_webview_panel(MAIN_WINDOW_LABEL) {
-            panel.hide();
+            panel.order_out(None);
             return Ok(());
         }
     }
@@ -276,9 +233,10 @@ pub async fn hide_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), Str
 pub async fn toggle_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
+        use crate::window::WebviewWindowExt;
         if let Ok(panel) = app.get_webview_panel(MAIN_WINDOW_LABEL) {
             if panel.is_visible() {
-                panel.hide();
+                panel.order_out(None);
             } else {
                 if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
                     let _ = window.center_at_cursor_monitor();
