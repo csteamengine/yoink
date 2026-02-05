@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 pub struct HotkeyManager {
@@ -13,7 +13,7 @@ impl HotkeyManager {
     }
 
     pub fn register<R: Runtime>(&self, app: &AppHandle<R>, hotkey: &str) -> Result<(), String> {
-        let shortcut: Shortcut = hotkey.parse().map_err(|e: tauri_plugin_global_shortcut::Error| e.to_string())?;
+        let shortcut: Shortcut = hotkey.parse().map_err(|e| format!("{:?}", e))?;
 
         // Unregister existing shortcut if any
         self.unregister(app)?;
