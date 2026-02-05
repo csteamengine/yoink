@@ -4,9 +4,9 @@ use chrono::Utc;
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_clipboard_manager::ClipboardExt;
-use tokio::time::{interval, Duration};
 use uuid::Uuid;
 
 pub struct ClipboardMonitor {
@@ -20,15 +20,14 @@ impl ClipboardMonitor {
         }
     }
 
-    pub fn start<R: Runtime>(&self, app: AppHandle<R>) {
+    pub fn start<R: Runtime + 'static>(&self, app: AppHandle<R>) {
         if self.is_running.swap(true, Ordering::SeqCst) {
             return; // Already running
         }
 
         let is_running = self.is_running.clone();
 
-        tokio::spawn(async move {
-            let mut ticker = interval(Duration::from_millis(500));
+        std::thread::spawn(move || {
             let mut last_hash: Option<String> = None;
 
             // Try to get the last hash from the database
@@ -39,9 +38,9 @@ impl ClipboardMonitor {
             }
 
             while is_running.load(Ordering::SeqCst) {
-                ticker.tick().await;
+                std::thread::sleep(Duration::from_millis(500));
 
-                if let Err(e) = process_clipboard(&app, &mut last_hash).await {
+                if let Err(e) = process_clipboard_sync(&app, &mut last_hash) {
                     eprintln!("Clipboard monitor error: {}", e);
                 }
             }
@@ -53,7 +52,7 @@ impl ClipboardMonitor {
     }
 }
 
-async fn process_clipboard<R: Runtime>(
+fn process_clipboard_sync<R: Runtime>(
     app: &AppHandle<R>,
     last_hash: &mut Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
