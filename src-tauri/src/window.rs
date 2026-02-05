@@ -9,19 +9,21 @@ use tauri_nspanel::{
     panel_delegate,
     raw_nspanel::RawNSPanel,
     ManagerExt, WebviewWindowExt as NsPanelExt,
-    NSWindowCollectionBehavior,
 };
+
+#[cfg(target_os = "macos")]
+use cocoa::appkit::NSWindowCollectionBehavior;
 
 pub const MAIN_WINDOW_LABEL: &str = "main";
 
 #[cfg(target_os = "macos")]
 pub trait WebviewWindowExt {
     fn to_yoink_panel(&self) -> tauri::Result<ShareId<RawNSPanel>>;
-    fn center_at_cursor_monitor(&self) -> tauri::Result<()>;
+    fn center_at_cursor_monitor(&self) -> Result<(), String>;
 }
 
 #[cfg(target_os = "macos")]
-#[allow(deprecated)]
+#[allow(deprecated, unexpected_cfgs)]
 impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
     fn to_yoink_panel(&self) -> tauri::Result<ShareId<RawNSPanel>> {
         let panel = self.to_panel()?;
@@ -62,23 +64,26 @@ impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
         Ok(panel)
     }
 
-    fn center_at_cursor_monitor(&self) -> tauri::Result<()> {
+    fn center_at_cursor_monitor(&self) -> Result<(), String> {
         // Get monitor with cursor
         let monitor = monitor::get_monitor_with_cursor()
-            .ok_or_else(|| tauri::Error::InvalidWindowUrl("Monitor with cursor not found"))?;
+            .ok_or_else(|| "Monitor with cursor not found".to_string())?;
 
         let scale = monitor.scale_factor();
         let monitor_size = monitor.size().to_logical::<f64>(scale);
         let monitor_pos = monitor.position().to_logical::<f64>(scale);
 
         // Get window size
-        let window_size = self.outer_size()?.to_logical::<f64>(scale);
+        let window_size = self.outer_size()
+            .map_err(|e| e.to_string())?
+            .to_logical::<f64>(scale);
 
         // Calculate centered position (slightly above center)
         let x = monitor_pos.x + (monitor_size.width - window_size.width) / 2.0;
         let y = monitor_pos.y + (monitor_size.height - window_size.height) / 2.0 - 50.0;
 
-        self.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(x, y)))?;
+        self.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(x, y)))
+            .map_err(|e| e.to_string())?;
 
         Ok(())
     }
@@ -86,7 +91,7 @@ impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
 
 /// Apply native macOS vibrancy effect
 #[cfg(target_os = "macos")]
-#[allow(deprecated)]
+#[allow(deprecated, unexpected_cfgs)]
 pub fn set_window_blur<R: Runtime>(window: &WebviewWindow<R>, _enabled: bool) -> Result<(), String> {
     use cocoa::appkit::{NSColor, NSWindow as NSWindowTrait};
     use cocoa::base::{id, nil, NO, YES};
