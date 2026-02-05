@@ -1,3 +1,7 @@
+// Suppress deprecation warnings from cocoa crate (tauri-nspanel requires it)
+// and unexpected_cfgs from objc macros used by tauri-nspanel
+#![allow(deprecated, unexpected_cfgs)]
+
 use tauri::{Manager, Runtime, WebviewWindow};
 
 #[cfg(target_os = "macos")]
@@ -11,6 +15,9 @@ use tauri_nspanel::{
     ManagerExt, WebviewWindowExt as NsPanelExt,
 };
 
+#[cfg(target_os = "macos")]
+use cocoa::appkit::NSWindowCollectionBehavior;
+
 pub const MAIN_WINDOW_LABEL: &str = "main";
 
 #[cfg(target_os = "macos")]
@@ -20,7 +27,6 @@ pub trait WebviewWindowExt {
 }
 
 #[cfg(target_os = "macos")]
-#[allow(unexpected_cfgs)] // For panel_delegate! macro from tauri-nspanel which uses old objc
 impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
     fn to_yoink_panel(&self) -> tauri::Result<ShareId<RawNSPanel>> {
         let panel = self.to_panel()?;
@@ -29,11 +35,9 @@ impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
         panel.set_level(5);
 
         // Set collection behavior for proper space handling
-        // NSWindowCollectionBehaviorCanJoinAllSpaces (1) | NSWindowCollectionBehaviorFullScreenAuxiliary (256) | NSWindowCollectionBehaviorTransient (8)
-        use objc2_app_kit::NSWindowCollectionBehavior;
-        let behavior = NSWindowCollectionBehavior::CanJoinAllSpaces
-            | NSWindowCollectionBehavior::FullScreenAuxiliary
-            | NSWindowCollectionBehavior::Transient;
+        let behavior = NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary
+            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorTransient;
         panel.set_collection_behaviour(behavior);
 
         // Set as floating panel
@@ -88,96 +92,94 @@ impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
     }
 }
 
-/// Apply native macOS vibrancy effect using modern objc2 APIs
+/// Apply native macOS vibrancy effect
 #[cfg(target_os = "macos")]
 pub fn set_window_blur<R: Runtime>(window: &WebviewWindow<R>, _enabled: bool) -> Result<(), String> {
-    use objc2::rc::Retained;
-    use objc2::runtime::AnyObject;
-    use objc2::{msg_send, sel, ClassType};
-    use objc2_app_kit::{
-        NSColor, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
-        NSVisualEffectState, NSVisualEffectView, NSWindow,
-    };
-    use objc2_foundation::{CGRect, MainThreadMarker, NSAutoresizingMaskOptions};
+    use cocoa::appkit::{NSColor, NSWindow as NSWindowTrait};
+    use cocoa::base::{id, nil, NO, YES};
+    use cocoa::foundation::NSRect;
+    use objc::{class, msg_send, sel, sel_impl};
 
-    let ns_window_ptr = match window.ns_window() {
-        Ok(w) => w,
+    let ns_window = match window.ns_window() {
+        Ok(w) => w as id,
         Err(e) => return Err(e.to_string()),
     };
 
-    if ns_window_ptr.is_null() {
+    if ns_window.is_null() {
         return Err("ns_window is null".to_string());
     }
 
-    // SAFETY: We got this pointer from Tauri which guarantees it's a valid NSWindow
-    let ns_window: &NSWindow = unsafe { &*(ns_window_ptr as *const NSWindow) };
-
-    // Get main thread marker - required for AppKit operations
-    let mtm = match MainThreadMarker::new() {
-        Some(m) => m,
-        None => return Err("Not on main thread".to_string()),
-    };
-
     unsafe {
         // Make window transparent
-        ns_window.setOpaque(false);
-        ns_window.setBackgroundColor(Some(&NSColor::clearColor()));
-        ns_window.setTitlebarAppearsTransparent(true);
+        let _: () = msg_send![ns_window, setOpaque: NO];
+        ns_window.setBackgroundColor_(NSColor::clearColor(nil));
+        let _: () = msg_send![ns_window, setTitlebarAppearsTransparent: YES];
 
-        let content_view = match ns_window.contentView() {
-            Some(v) => v,
-            None => return Err("content_view is null".to_string()),
-        };
+        let content_view: id = ns_window.contentView();
+        if content_view.is_null() {
+            return Err("content_view is null".to_string());
+        }
 
         // Enable layer backing
-        content_view.setWantsLayer(true);
-        if let Some(layer) = content_view.layer() {
-            let _: () = msg_send![&layer, setCornerRadius: 10.0_f64];
-            let _: () = msg_send![&layer, setMasksToBounds: true];
+        let _: () = msg_send![content_view, setWantsLayer: YES];
+        let content_layer: id = msg_send![content_view, layer];
+        if !content_layer.is_null() {
+            let _: () = msg_send![content_layer, setCornerRadius: 10.0_f64];
+            let _: () = msg_send![content_layer, setMasksToBounds: YES];
         }
 
-        let bounds = content_view.bounds();
+        let bounds: NSRect = msg_send![content_view, bounds];
 
         // Create NSVisualEffectView
-        let visual_effect_view = NSVisualEffectView::initWithFrame(
-            NSVisualEffectView::alloc(),
-            bounds,
-        );
+        let visual_effect_class = class!(NSVisualEffectView);
+        let visual_effect_view: id = msg_send![visual_effect_class, alloc];
+        let visual_effect_view: id = msg_send![visual_effect_view, initWithFrame: bounds];
 
-        // Dark vibrancy material
-        visual_effect_view.setMaterial(NSVisualEffectMaterial::UltraDark);
-        visual_effect_view.setState(NSVisualEffectState::Active);
-        visual_effect_view.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
-
-        // Auto-resize (width | height sizable)
-        visual_effect_view.setAutoresizingMask(
-            NSAutoresizingMaskOptions::NSViewWidthSizable
-                | NSAutoresizingMaskOptions::NSViewHeightSizable,
-        );
-
-        // Corner radius on visual effect view
-        visual_effect_view.setWantsLayer(true);
-        if let Some(layer) = visual_effect_view.layer() {
-            let _: () = msg_send![&layer, setCornerRadius: 10.0_f64];
-            let _: () = msg_send![&layer, setMasksToBounds: true];
+        if visual_effect_view.is_null() {
+            return Err("Failed to create NSVisualEffectView".to_string());
         }
 
-        // Insert behind other subviews
-        // NSWindowBelow = -1
-        let retained_view: Retained<NSView> = Retained::cast(visual_effect_view);
-        let _: () = msg_send![&content_view, addSubview: &*retained_view, positioned: -1_isize, relativeTo: std::ptr::null::<AnyObject>()];
+        // Use HUDWindow material (13) - modern replacement for deprecated UltraDark
+        let _: () = msg_send![visual_effect_view, setMaterial: 13_i64];
+        // State active (1)
+        let _: () = msg_send![visual_effect_view, setState: 1_i64];
+        // Blending mode behind window (0)
+        let _: () = msg_send![visual_effect_view, setBlendingMode: 0_i64];
+
+        // Auto-resize (width | height sizable)
+        let autoresizing: u64 = 2 | 16;
+        let _: () = msg_send![visual_effect_view, setAutoresizingMask: autoresizing];
+
+        // Corner radius
+        let _: () = msg_send![visual_effect_view, setWantsLayer: YES];
+        let layer: id = msg_send![visual_effect_view, layer];
+        if !layer.is_null() {
+            let _: () = msg_send![layer, setCornerRadius: 10.0_f64];
+            let _: () = msg_send![layer, setMasksToBounds: YES];
+        }
+
+        // Insert behind webview (position -1 = below)
+        let _: () = msg_send![content_view, addSubview: visual_effect_view positioned: -1_i64 relativeTo: nil];
 
         // Make webview transparent
-        let subviews = content_view.subviews();
-        for subview in subviews.iter() {
-            // Skip the visual effect view we just added
-            if Retained::as_ptr(&subview) == Retained::as_ptr(&retained_view) {
-                continue;
-            }
-            // Try to make the webview transparent
-            let responds: bool = msg_send![&subview, respondsToSelector: sel!(setDrawsBackground:)];
-            if responds {
-                let _: () = msg_send![&subview, setDrawsBackground: false];
+        let subviews: id = msg_send![content_view, subviews];
+        if !subviews.is_null() {
+            let count: usize = msg_send![subviews, count];
+            for i in 0..count {
+                let subview: id = msg_send![subviews, objectAtIndex: i];
+                if subview.is_null() || subview == visual_effect_view {
+                    continue;
+                }
+                let responds: bool = msg_send![subview, respondsToSelector: sel!(setDrawsBackground:)];
+                if responds {
+                    let _: () = msg_send![subview, setDrawsBackground: NO];
+                }
+                let responds2: bool = msg_send![subview, respondsToSelector: sel!(setValue:forKey:)];
+                if responds2 {
+                    let key: id = msg_send![class!(NSString), stringWithUTF8String: b"drawsBackground\0".as_ptr()];
+                    let no_value: id = msg_send![class!(NSNumber), numberWithBool: NO];
+                    let _: () = msg_send![subview, setValue: no_value forKey: key];
+                }
             }
         }
 
