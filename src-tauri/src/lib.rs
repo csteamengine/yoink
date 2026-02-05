@@ -17,11 +17,9 @@ use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
+    Emitter,
     Manager,
 };
-
-#[cfg(target_os = "macos")]
-use tauri_nspanel::ManagerExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

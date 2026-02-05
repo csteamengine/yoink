@@ -1,8 +1,5 @@
 use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 
-#[cfg(target_os = "macos")]
-use tauri_nspanel::ManagerExt as NSPanelManagerExt;
-
 pub struct WindowManager;
 
 impl WindowManager {
