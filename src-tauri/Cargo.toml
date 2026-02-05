@@ -46,6 +46,11 @@ objc = "0.2"
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 
+[lints.rust]
+# Suppress warnings from objc/cocoa macros (required by tauri-nspanel)
+unexpected_cfgs = "allow"
+deprecated = "allow"
+
 [profile.release]
 strip = true
 lto = true

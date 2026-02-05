@@ -1,7 +1,3 @@
-// Suppress deprecation warnings from cocoa crate (tauri-nspanel requires it)
-// and unexpected_cfgs from objc macros used by tauri-nspanel
-#![allow(deprecated, unexpected_cfgs)]
-
 use tauri::{Manager, Runtime, WebviewWindow};
 
 #[cfg(target_os = "macos")]
