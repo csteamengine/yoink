@@ -21,27 +21,16 @@ export function CollectionsPanel() {
     selectedCollectionId,
     setSelectedCollection,
     createCollection,
-    deleteCollection,
     updateCollection,
   } = useClipboardStore();
 
   const [isCreating, setIsCreating] = useState(false);
-  const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState(COLORS[0]);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   if (!isPro) {
     return null;
   }
-
-  const handleCreate = async () => {
-    if (newName.trim()) {
-      await createCollection(newName.trim(), newColor);
-      setNewName('');
-      setNewColor(COLORS[0]);
-      setIsCreating(false);
-    }
-  };
 
   const handleUpdate = async (id: string, name: string, color: string) => {
     await updateCollection(id, name, color);
@@ -117,10 +106,9 @@ export function CollectionsPanel() {
           name=""
           color={newColor}
           onSave={async (name, color) => {
-            setNewName(name);
-            setNewColor(color);
             if (name.trim()) {
               await createCollection(name.trim(), color);
+              setNewColor(COLORS[0]);
               setIsCreating(false);
             }
           }}
@@ -149,7 +137,6 @@ function CollectionEditor({
 }: CollectionEditorProps) {
   const [name, setName] = useState(initialName);
   const [color, setColor] = useState(initialColor);
-  const { deleteCollection } = useClipboardStore();
 
   return (
     <div className="mt-2 p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">

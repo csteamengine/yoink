@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSettingsStore, Settings } from '@/stores/settingsStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useProStore } from '@/stores/proStore';
 import { useClipboardStore } from '@/stores/clipboardStore';
 import clsx from 'clsx';
@@ -13,7 +13,7 @@ const TABS = [
 ];
 
 export function SettingsPanel() {
-  const { settings, isSettingsOpen, closeSettings, activeTab, setActiveTab } =
+  const { isSettingsOpen, closeSettings, activeTab, setActiveTab } =
     useSettingsStore();
   const { isPro } = useProStore();
 

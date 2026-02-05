@@ -1,3 +1,4 @@
+import React from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import clsx from 'clsx';
 import type { ClipboardItem as ClipboardItemType } from '@/stores/clipboardStore';
@@ -12,7 +13,7 @@ interface ClipboardItemProps {
   onPaste: () => void;
 }
 
-const contentTypeIcons: Record<string, JSX.Element> = {
+const contentTypeIcons: Record<string, React.ReactElement> = {
   text: (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />

@@ -2,7 +2,6 @@ import { useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useClipboardStore } from '@/stores/clipboardStore';
 import { ClipboardItem } from './ClipboardItem';
-import clsx from 'clsx';
 
 export function ClipboardList() {
   const parentRef = useRef<HTMLDivElement>(null);

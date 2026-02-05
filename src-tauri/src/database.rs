@@ -332,6 +332,7 @@ impl Database {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn cleanup_expired(&self) -> Result<u32> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().to_rfc3339();

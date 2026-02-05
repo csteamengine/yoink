@@ -7,23 +7,24 @@ mod qrcode;
 mod settings;
 mod window;
 
-use database::Database;
 use clipboard::ClipboardMonitor;
+use database::Database;
 use hotkey::HotkeyManager;
 use settings::SettingsManager;
-use window::WindowManager;
+
+#[cfg(target_os = "macos")]
+use window::{set_window_blur, WebviewWindowExt, MAIN_WINDOW_LABEL};
 
 use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
-    Emitter,
-    Manager,
+    Emitter, Manager,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
@@ -31,9 +32,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build());
 
     #[cfg(target_os = "macos")]
-    {
-        builder = builder.plugin(tauri_nspanel::init());
-    }
+    let builder = builder.plugin(tauri_nspanel::init());
 
     builder
         .setup(|app| {
@@ -44,24 +43,14 @@ pub fn run() {
                 .expect("Failed to get app data directory");
 
             // Initialize database
-            let db = Database::new(app_data_dir.clone())
-                .expect("Failed to initialize database");
+            let db =
+                Database::new(app_data_dir.clone()).expect("Failed to initialize database");
             app.manage(db);
 
             // Initialize settings
             let settings_manager = SettingsManager::new(app_data_dir);
             let settings = settings_manager.get();
             app.manage(settings_manager);
-
-            // Initialize window manager
-            let window_manager = WindowManager::new();
-
-            // Setup window as panel on macOS
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window_manager.setup_panel(&window);
-            }
-
-            app.manage(window_manager);
 
             // Initialize hotkey manager
             let hotkey_manager = HotkeyManager::new();
@@ -74,6 +63,26 @@ pub fn run() {
                 clipboard_monitor.init_last_hash(&db);
             }
             app.manage(clipboard_monitor);
+
+            // Setup window as NSPanel on macOS
+            #[cfg(target_os = "macos")]
+            {
+                if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                    // Convert to panel
+                    if let Err(e) = window.to_yoink_panel() {
+                        log::warn!("Failed to initialize panel: {:?}", e);
+                    } else {
+                        log::info!("NSPanel initialized successfully");
+
+                        // Apply vibrancy
+                        if let Err(e) = set_window_blur(&window, true) {
+                            log::warn!("Failed to apply vibrancy: {:?}", e);
+                        } else {
+                            log::info!("Vibrancy applied");
+                        }
+                    }
+                }
+            }
 
             // Setup system tray
             setup_tray(app)?;
@@ -145,7 +154,6 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     // Create a simple icon (16x16 white square as placeholder)
-    // In production, load from icons/icon.png
     let icon_data: Vec<u8> = vec![255u8; 16 * 16 * 4];
     let icon = Image::new_owned(icon_data, 16, 16);
 
@@ -164,12 +172,11 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
                     let _ = window::show_window(app.clone()).await;
-                    // Emit event to open settings panel
                     let _ = app.emit("open-settings", ());
                 });
             }
             "upgrade" => {
-                // Open upgrade URL in browser
+                #[allow(deprecated)]
                 let _ = tauri_plugin_shell::ShellExt::shell(app)
                     .open("https://yoink.app/upgrade", None);
             }
