@@ -1,28 +1,88 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Build outputs
 dist/
 src-tauri/target/
 
-# Environment files
+# Environment & sensitive files
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.p12
+*.pfx
+credentials.json
+secrets.json
+**/secrets/
+**/credentials/
+*.secret
+.npmrc
+.yarnrc
 
-# IDE
+# API keys and tokens
+*.token
+api_keys.json
+auth.json
+
+# IDE - VSCode
 .vscode/
+
+# IDE - WebStorm / JetBrains
 .idea/
+*.iml
+*.ipr
+*.iws
+.idea_modules/
+atlassian-ide-plugin.xml
+out/
+
+# IDE - Other
 *.swp
 *.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-workspace
+*.sublime-project
 
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+Desktop.ini
 
 # Logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+*.bak
+*.tmp
+*.temp
+.cache/
+.parcel-cache/
 
 # Tauri
 src-tauri/target/
+src-tauri/*.pem
+
+# Local development
+.claude/
+*.local
