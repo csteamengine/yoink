@@ -1,7 +1,7 @@
 use tauri::{Manager, Runtime, WebviewWindow};
 
 #[cfg(target_os = "macos")]
-use tauri::{Emitter, AppHandle};
+use tauri::Emitter;
 
 #[cfg(target_os = "macos")]
 use tauri_nspanel::{
@@ -9,6 +9,7 @@ use tauri_nspanel::{
     panel_delegate,
     raw_nspanel::RawNSPanel,
     ManagerExt, WebviewWindowExt as NsPanelExt,
+    NSWindowCollectionBehavior,
 };
 
 pub const MAIN_WINDOW_LABEL: &str = "main";
@@ -20,6 +21,7 @@ pub trait WebviewWindowExt {
 }
 
 #[cfg(target_os = "macos")]
+#[allow(deprecated)]
 impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
     fn to_yoink_panel(&self) -> tauri::Result<ShareId<RawNSPanel>> {
         let panel = self.to_panel()?;
@@ -28,8 +30,10 @@ impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
         panel.set_level(5);
 
         // Set collection behavior for proper space handling
-        // NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary
-        panel.set_collection_behaviour(1 << 0 | 1 << 8);
+        let behavior = NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary
+            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorTransient;
+        panel.set_collection_behaviour(behavior);
 
         // Set as floating panel
         panel.set_floating_panel(true);
@@ -61,23 +65,20 @@ impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
     fn center_at_cursor_monitor(&self) -> tauri::Result<()> {
         // Get monitor with cursor
         let monitor = monitor::get_monitor_with_cursor()
-            .ok_or_else(|| tauri::Error::Anyhow("Monitor with cursor not found".into()))?;
+            .ok_or_else(|| tauri::Error::InvalidWindowUrl("Monitor with cursor not found"))?;
 
         let scale = monitor.scale_factor();
         let monitor_size = monitor.size().to_logical::<f64>(scale);
         let monitor_pos = monitor.position().to_logical::<f64>(scale);
 
         // Get window size
-        let window_size = self.outer_size()
-            .map_err(|e| tauri::Error::Anyhow(e.to_string().into()))?
-            .to_logical::<f64>(scale);
+        let window_size = self.outer_size()?.to_logical::<f64>(scale);
 
         // Calculate centered position (slightly above center)
         let x = monitor_pos.x + (monitor_size.width - window_size.width) / 2.0;
         let y = monitor_pos.y + (monitor_size.height - window_size.height) / 2.0 - 50.0;
 
-        self.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(x, y)))
-            .map_err(|e| tauri::Error::Anyhow(e.to_string().into()))?;
+        self.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(x, y)))?;
 
         Ok(())
     }
