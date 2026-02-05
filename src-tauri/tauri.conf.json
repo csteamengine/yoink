@@ -52,18 +52,9 @@
     }
   },
   "plugins": {
-    "global-shortcut": {
-      "all": true
-    },
-    "clipboard-manager": {
-      "all": true
-    },
-    "notification": {
-      "all": true
-    },
+    "global-shortcut": {},
     "shell": {
-      "all": true
-    },
-    "store": {}
+      "open": true
+    }
   }
 }
