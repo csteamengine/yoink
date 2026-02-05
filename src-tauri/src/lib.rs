@@ -70,7 +70,9 @@ pub fn run() {
 
             // Initialize clipboard monitor
             let clipboard_monitor = ClipboardMonitor::new();
-            clipboard_monitor.start(app.handle().clone());
+            if let Some(db) = app.try_state::<Database>() {
+                clipboard_monitor.init_last_hash(&db);
+            }
             app.manage(clipboard_monitor);
 
             // Setup system tray
@@ -80,6 +82,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             // Clipboard commands
+            clipboard::check_clipboard,
             clipboard::get_clipboard_items,
             clipboard::get_pinned_items,
             clipboard::delete_clipboard_item,

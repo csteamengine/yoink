@@ -2,60 +2,36 @@ use crate::database::{ClipboardItem, Database};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use uuid::Uuid;
 
 pub struct ClipboardMonitor {
-    is_running: Arc<AtomicBool>,
+    last_hash: Mutex<Option<String>>,
 }
 
 impl ClipboardMonitor {
     pub fn new() -> Self {
         Self {
-            is_running: Arc::new(AtomicBool::new(false)),
+            last_hash: Mutex::new(None),
         }
     }
 
-    pub fn start<R: Runtime + 'static>(&self, app: AppHandle<R>) {
-        if self.is_running.swap(true, Ordering::SeqCst) {
-            return; // Already running
+    pub fn init_last_hash(&self, db: &Database) {
+        if let Ok(hash) = db.get_last_hash() {
+            *self.last_hash.lock().unwrap() = hash;
         }
-
-        let is_running = self.is_running.clone();
-
-        std::thread::spawn(move || {
-            let mut last_hash: Option<String> = None;
-
-            // Try to get the last hash from the database
-            if let Some(db) = app.try_state::<Database>() {
-                if let Ok(hash) = db.get_last_hash() {
-                    last_hash = hash;
-                }
-            }
-
-            while is_running.load(Ordering::SeqCst) {
-                std::thread::sleep(Duration::from_millis(500));
-
-                if let Err(e) = process_clipboard_sync(&app, &mut last_hash) {
-                    eprintln!("Clipboard monitor error: {}", e);
-                }
-            }
-        });
-    }
-
-    pub fn stop(&self) {
-        self.is_running.store(false, Ordering::SeqCst);
     }
 }
 
-fn process_clipboard_sync<R: Runtime>(
-    app: &AppHandle<R>,
-    last_hash: &mut Option<String>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+// Called from frontend via polling
+#[tauri::command]
+pub async fn check_clipboard<R: Runtime>(
+    app: AppHandle<R>,
+    db: tauri::State<'_, Database>,
+    monitor: tauri::State<'_, ClipboardMonitor>,
+) -> Result<Option<ClipboardItem>, String> {
     let clipboard = app.clipboard();
 
     // Try to read text content
@@ -64,8 +40,11 @@ fn process_clipboard_sync<R: Runtime>(
             let hash = compute_hash(&text);
 
             // Skip if same as last item
-            if last_hash.as_ref() == Some(&hash) {
-                return Ok(());
+            {
+                let last_hash = monitor.last_hash.lock().unwrap();
+                if last_hash.as_ref() == Some(&hash) {
+                    return Ok(None);
+                }
             }
 
             // Create clipboard item
@@ -83,20 +62,15 @@ fn process_clipboard_sync<R: Runtime>(
             };
 
             // Store in database
-            if let Some(db) = app.try_state::<Database>() {
-                db.insert_item(&item)?;
+            db.insert_item(&item).map_err(|e| e.to_string())?;
+            db.enforce_limit(100).map_err(|e| e.to_string())?;
 
-                // Enforce 100-item limit for free tier
-                // TODO: Check pro status for higher limits
-                db.enforce_limit(100)?;
-            }
-
-            *last_hash = Some(hash);
+            *monitor.last_hash.lock().unwrap() = Some(hash);
 
             // Emit event to frontend
             let _ = app.emit("clipboard-changed", &item);
 
-            return Ok(());
+            return Ok(Some(item));
         }
     }
 
@@ -104,14 +78,15 @@ fn process_clipboard_sync<R: Runtime>(
     if let Ok(image) = clipboard.read_image() {
         let rgba = image.rgba();
         if !rgba.is_empty() {
-            // Create hash from image bytes
             let hash = compute_hash_bytes(&rgba);
 
-            if last_hash.as_ref() == Some(&hash) {
-                return Ok(());
+            {
+                let last_hash = monitor.last_hash.lock().unwrap();
+                if last_hash.as_ref() == Some(&hash) {
+                    return Ok(None);
+                }
             }
 
-            // Store as base64 encoded PNG
             let base64_content = STANDARD.encode(&rgba);
 
             let item = ClipboardItem {
@@ -126,17 +101,17 @@ fn process_clipboard_sync<R: Runtime>(
                 expires_at: None,
             };
 
-            if let Some(db) = app.try_state::<Database>() {
-                db.insert_item(&item)?;
-                db.enforce_limit(100)?;
-            }
+            db.insert_item(&item).map_err(|e| e.to_string())?;
+            db.enforce_limit(100).map_err(|e| e.to_string())?;
 
-            *last_hash = Some(hash);
+            *monitor.last_hash.lock().unwrap() = Some(hash);
             let _ = app.emit("clipboard-changed", &item);
+
+            return Ok(Some(item));
         }
     }
 
-    Ok(())
+    Ok(None)
 }
 
 fn compute_hash(content: &str) -> String {
