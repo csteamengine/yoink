@@ -1,8 +1,10 @@
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 #[cfg(target_os = "macos")]
 use tauri_nspanel::ManagerExt;
+
+use crate::window::HotkeyModeState;
 
 pub struct HotkeyManager {
     current_shortcut: std::sync::Mutex<Option<Shortcut>>,
@@ -43,9 +45,13 @@ impl HotkeyManager {
                         }
                     };
 
-                    // Emit hotkey-mode-started event BEFORE showing window
-                    // Only emit when opening (not when closing)
+                    // Enter hotkey mode and emit event BEFORE showing window
+                    // Only when opening (not when closing)
                     if is_opening {
+                        // Enter backend hotkey mode to prevent auto-hide while modifiers held
+                        if let Some(hotkey_state) = app.try_state::<HotkeyModeState>() {
+                            hotkey_state.enter();
+                        }
                         let _ = app.emit("hotkey-mode-started", ());
                     }
 

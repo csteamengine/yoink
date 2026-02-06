@@ -1,4 +1,7 @@
 use tauri::{Manager, Runtime, WebviewWindow};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(target_os = "macos")]
 use std::sync::Mutex;
 
 #[cfg(target_os = "macos")]
@@ -19,6 +22,35 @@ use cocoa::appkit::NSWindowCollectionBehavior;
 use cocoa::base::id;
 
 pub const MAIN_WINDOW_LABEL: &str = "main";
+
+/// Tracks whether we're in hotkey mode (modifiers held after Cmd+Shift+V)
+/// When active, the panel should NOT auto-hide on focus loss
+pub struct HotkeyModeState {
+    is_active: AtomicBool,
+}
+
+impl HotkeyModeState {
+    pub fn new() -> Self {
+        Self {
+            is_active: AtomicBool::new(false),
+        }
+    }
+
+    pub fn enter(&self) {
+        log::info!("[HotkeyMode] Entering hotkey mode (backend)");
+        self.is_active.store(true, Ordering::SeqCst);
+    }
+
+    pub fn exit(&self) {
+        log::info!("[HotkeyMode] Exiting hotkey mode (backend)");
+        self.is_active.store(false, Ordering::SeqCst);
+    }
+
+    #[allow(dead_code)] // Used in panel delegate closure
+    pub fn is_active(&self) -> bool {
+        self.is_active.load(Ordering::SeqCst)
+    }
+}
 
 /// Stores the previously focused application so we can restore focus to it
 #[cfg(target_os = "macos")]
@@ -95,6 +127,21 @@ impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
         delegate.set_listener(Box::new(move |delegate_name: String| {
             if delegate_name == "window_did_resign_key" {
                 log::info!("panel resigned key window");
+
+                // Check if hotkey mode is active (user holding modifiers)
+                let hotkey_mode_active = if let Some(hotkey_state) =
+                    app_handle.try_state::<HotkeyModeState>()
+                {
+                    hotkey_state.is_active()
+                } else {
+                    false
+                };
+
+                // In hotkey mode, don't auto-hide - user is still holding modifiers
+                if hotkey_mode_active {
+                    log::info!("Hotkey mode active, not hiding panel");
+                    return;
+                }
 
                 // Check if sticky mode is enabled
                 let sticky_mode = if let Some(settings_manager) =
@@ -298,6 +345,11 @@ pub async fn show_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), Str
 
 #[tauri::command]
 pub async fn hide_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
+    // Always exit hotkey mode when hiding
+    if let Some(hotkey_state) = app.try_state::<HotkeyModeState>() {
+        hotkey_state.exit();
+    }
+
     #[cfg(target_os = "macos")]
     {
         // Get the previous app state before hiding
@@ -335,6 +387,11 @@ pub async fn toggle_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), S
             let is_visible = panel.is_visible();
 
             if is_visible {
+                // Exit hotkey mode when closing
+                if let Some(hotkey_state) = app.try_state::<HotkeyModeState>() {
+                    hotkey_state.exit();
+                }
+
                 // Closing - get previous app state for restoration
                 let prev_app_state = app.try_state::<PreviousAppState>();
 
@@ -401,4 +458,14 @@ pub async fn is_window_visible<R: Runtime>(app: tauri::AppHandle<R>) -> Result<b
     } else {
         Ok(false)
     }
+}
+
+#[tauri::command]
+pub fn enter_hotkey_mode(hotkey_state: tauri::State<'_, HotkeyModeState>) {
+    hotkey_state.enter();
+}
+
+#[tauri::command]
+pub fn exit_hotkey_mode(hotkey_state: tauri::State<'_, HotkeyModeState>) {
+    hotkey_state.exit();
 }

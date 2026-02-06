@@ -14,10 +14,10 @@ use hotkey::HotkeyManager;
 use settings::SettingsManager;
 
 #[cfg(target_os = "macos")]
-use window::{set_window_blur, PreviousAppState, WebviewWindowExt, MAIN_WINDOW_LABEL};
+use window::{set_window_blur, HotkeyModeState, PreviousAppState, WebviewWindowExt, MAIN_WINDOW_LABEL};
 
 #[cfg(not(target_os = "macos"))]
-use window::MAIN_WINDOW_LABEL;
+use window::HotkeyModeState;
 
 use tauri::{
     image::Image,
@@ -79,6 +79,9 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.manage(PreviousAppState::new());
 
+            // Initialize hotkey mode state (for preventing auto-hide while modifiers held)
+            app.manage(HotkeyModeState::new());
+
             // Setup window as NSPanel on macOS
             #[cfg(target_os = "macos")]
             {
@@ -122,6 +125,8 @@ pub fn run() {
             window::hide_window,
             window::toggle_window,
             window::is_window_visible,
+            window::enter_hotkey_mode,
+            window::exit_hotkey_mode,
             // Settings commands
             settings::get_settings,
             settings::update_settings,

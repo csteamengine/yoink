@@ -4,7 +4,8 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
+use crate::window::HotkeyModeState;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use uuid::Uuid;
 
@@ -339,6 +340,11 @@ pub async fn paste_and_simulate<R: Runtime>(
                     .write_text(&item.content)
                     .map_err(|e| e.to_string())?;
             }
+        }
+
+        // Exit hotkey mode before hiding
+        if let Some(hotkey_state) = app.try_state::<HotkeyModeState>() {
+            hotkey_state.exit();
         }
 
         // Hide window (this also restores focus to the previous app)
