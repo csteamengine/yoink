@@ -29,7 +29,7 @@ use tauri::{
 };
 
 #[cfg(target_os = "macos")]
-use tauri::ActivationPolicy;
+use tauri::{ActivationPolicy, Emitter};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -105,10 +105,12 @@ pub fn run() {
                     const MASK_COMMAND: u64 = 0x100000;
                     const MASK_SHIFT: u64 = 0x20000;
 
-                    // macOS virtual key code for Escape
+                    // macOS virtual key codes
                     const VK_ESCAPE: u16 = 53;
+                    const VK_V: u16 = 9;
 
                     let mut was_active = false;
+                    let mut v_was_pressed = false;
 
                     loop {
                         // Poll every 30ms - fast enough to feel instant
@@ -119,9 +121,20 @@ pub fn run() {
                             .try_state::<HotkeyModeState>()
                             .map_or(false, |s| s.is_active());
 
+                        // Unregister global shortcut when hotkey mode enters
+                        // so V keydown events aren't consumed by the shortcut system
+                        if is_active && !was_active {
+                            v_was_pressed = true; // V is held from activation
+                            if let Some(hotkey_mgr) =
+                                app_handle.try_state::<HotkeyManager>()
+                            {
+                                let _ = hotkey_mgr.unregister(&app_handle);
+                            }
+                        }
+
                         // Re-register global shortcut when hotkey mode exits
-                        // (it was unregistered on enter so V reaches the webview)
                         if !is_active && was_active {
+                            v_was_pressed = false;
                             if let Some(hotkey_mgr) =
                                 app_handle.try_state::<HotkeyManager>()
                             {
@@ -144,6 +157,17 @@ pub fn run() {
                         let esc_pressed = unsafe {
                             CGEventSourceKeyState(1, VK_ESCAPE)
                         };
+
+                        // Also detect V key for cycling (edge-detect: only on new press)
+                        // Try both HID state (1) and combined session state (0)
+                        let v_pressed = unsafe {
+                            CGEventSourceKeyState(1, VK_V)
+                            || CGEventSourceKeyState(0, VK_V)
+                        };
+                        if v_pressed && !v_was_pressed {
+                            let _ = app_handle.emit("hotkey-cycle", ());
+                        }
+                        v_was_pressed = v_pressed;
                         if esc_pressed {
                             if let Some(hotkey_state) =
                                 app_handle.try_state::<HotkeyModeState>()

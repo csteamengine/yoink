@@ -83,12 +83,9 @@ impl HotkeyManager {
                             }
                         }
                         let _ = app.emit("hotkey-mode-started", ());
-
-                        // Unregister global shortcut so V keydown events reach
-                        // the webview for cycling. Re-registered when hotkey mode exits.
-                        if let Some(hotkey_mgr) = app.try_state::<HotkeyManager>() {
-                            let _ = hotkey_mgr.unregister(&app);
-                        }
+                        // Global shortcut will be unregistered by the polling thread
+                        // (on the is_active && !was_active transition) so V keydown
+                        // events reach the webview for cycling.
                     }
 
                     // Toggle window visibility
