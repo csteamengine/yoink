@@ -149,6 +149,26 @@ function GeneralTab() {
       </SettingRow>
 
       <SettingRow
+        label="Auto-paste"
+        description="Automatically paste into the previous app when selecting an item"
+      >
+        <Toggle
+          checked={settings.auto_paste}
+          onChange={(checked) => updateSettings({ auto_paste: checked })}
+        />
+      </SettingRow>
+
+      <SettingRow
+        label="Sticky mode"
+        description="Keep window open until manually closed (shows search bar)"
+      >
+        <Toggle
+          checked={settings.sticky_mode}
+          onChange={(checked) => updateSettings({ sticky_mode: checked })}
+        />
+      </SettingRow>
+
+      <SettingRow
         label="Clear clipboard history"
         description="Delete all non-pinned clipboard items"
       >

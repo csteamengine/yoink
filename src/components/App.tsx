@@ -19,7 +19,7 @@ export default function App() {
   useKeyboardNav();
   useGlobalHotkey();
 
-  const { loadSettings, setupListeners: setupSettingsListeners, applyTheme } =
+  const { settings, loadSettings, setupListeners: setupSettingsListeners, applyTheme } =
     useSettingsStore();
   const { checkAuth } = useProStore();
 
@@ -59,8 +59,8 @@ export default function App() {
         'shadow-xl'
       )}
     >
-      {/* Search bar */}
-      <SearchBar />
+      {/* Search bar - only shown in sticky mode */}
+      {settings.sticky_mode && <SearchBar />}
 
       {/* Collections (Pro feature) */}
       <CollectionsPanel />

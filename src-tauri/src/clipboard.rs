@@ -254,9 +254,12 @@ pub async fn clear_history(db: tauri::State<'_, Database>) -> Result<(), String>
 pub async fn paste_item<R: Runtime>(
     app: AppHandle<R>,
     db: tauri::State<'_, Database>,
+    previous_app_state: tauri::State<'_, crate::paste_helper::PreviousAppState>,
+    settings_manager: tauri::State<'_, crate::settings::SettingsManager>,
     id: String,
 ) -> Result<(), String> {
     let item = db.get_item(&id).map_err(|e| e.to_string())?;
+    let settings = settings_manager.get();
 
     if let Some(item) = item {
         let clipboard = app.clipboard();
@@ -277,6 +280,21 @@ pub async fn paste_item<R: Runtime>(
                     .write_text(&item.content)
                     .map_err(|e| e.to_string())?;
             }
+        }
+
+        // Auto-paste to previous app if enabled
+        if settings.auto_paste {
+            // Hide the window first
+            crate::window::hide_window(app.clone()).await?;
+
+            // Paste to previous app
+            if let Err(e) = crate::paste_helper::paste_to_previous_app(&previous_app_state).await {
+                log::warn!("Failed to auto-paste: {}", e);
+                // Don't fail the whole operation, clipboard is already updated
+            }
+        } else {
+            // Even if auto-paste is disabled, hide the window
+            crate::window::hide_window(app.clone()).await?;
         }
     }
 

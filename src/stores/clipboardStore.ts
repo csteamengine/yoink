@@ -155,8 +155,8 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
 
   pasteItem: async (id: string) => {
     try {
+      // paste_item handles hiding window and auto-paste to previous app
       await invoke('paste_item', { id });
-      await invoke('hide_window');
     } catch (error) {
       set({ error: String(error) });
     }

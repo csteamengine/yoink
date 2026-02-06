@@ -35,6 +35,7 @@ image = "0.25"
 qrcode = "0.14"
 log = "0.4"
 thiserror = "1"
+rdev = "0.5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2" }

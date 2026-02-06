@@ -48,6 +48,22 @@ impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
         delegate.set_listener(Box::new(move |delegate_name: String| {
             if delegate_name == "window_did_resign_key" {
                 log::info!("panel resigned key window");
+
+                // Check if sticky mode is enabled
+                let sticky_mode = if let Some(settings_manager) =
+                    app_handle.try_state::<crate::settings::SettingsManager>()
+                {
+                    settings_manager.get().sticky_mode
+                } else {
+                    false
+                };
+
+                // In sticky mode, don't auto-hide on focus loss
+                if sticky_mode {
+                    log::info!("Sticky mode enabled, not hiding panel");
+                    return;
+                }
+
                 // Hide panel when it loses focus
                 if let Ok(panel) = app_handle.get_webview_panel(MAIN_WINDOW_LABEL) {
                     if panel.is_visible() {
@@ -193,8 +209,8 @@ pub fn set_window_blur<R: Runtime>(_window: &WebviewWindow<R>, _enabled: bool) -
 
 // Tauri commands
 
-#[tauri::command]
-pub async fn show_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
+/// Internal function to show window (without state parameter, for internal use)
+pub async fn show_window_internal<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use crate::window::WebviewWindowExt;
@@ -217,6 +233,16 @@ pub async fn show_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), Str
 }
 
 #[tauri::command]
+pub async fn show_window<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    previous_app_state: tauri::State<'_, crate::paste_helper::PreviousAppState>,
+) -> Result<(), String> {
+    // Save the currently focused app before showing Yoink
+    previous_app_state.save_previous_app();
+    show_window_internal(app).await
+}
+
+#[tauri::command]
 pub async fn hide_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -233,8 +259,11 @@ pub async fn hide_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), Str
     Ok(())
 }
 
-#[tauri::command]
-pub async fn toggle_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
+/// Internal function to toggle window, with optional previous app saving
+pub async fn toggle_window_internal<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    save_previous_app: bool,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use crate::window::WebviewWindowExt;
@@ -242,6 +271,14 @@ pub async fn toggle_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), S
             if panel.is_visible() {
                 panel.order_out(None);
             } else {
+                // Save the currently focused app before showing Yoink
+                if save_previous_app {
+                    if let Some(previous_app_state) =
+                        app.try_state::<crate::paste_helper::PreviousAppState>()
+                    {
+                        previous_app_state.save_previous_app();
+                    }
+                }
                 if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
                     let _ = window.center_at_cursor_monitor();
                 }
@@ -257,12 +294,30 @@ pub async fn toggle_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), S
         if is_visible {
             window.hide().map_err(|e| e.to_string())?;
         } else {
+            // Save the currently focused app before showing Yoink
+            if save_previous_app {
+                if let Some(previous_app_state) =
+                    app.try_state::<crate::paste_helper::PreviousAppState>()
+                {
+                    previous_app_state.save_previous_app();
+                }
+            }
             window.show().map_err(|e| e.to_string())?;
             window.set_focus().map_err(|e| e.to_string())?;
         }
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn toggle_window<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    previous_app_state: tauri::State<'_, crate::paste_helper::PreviousAppState>,
+) -> Result<(), String> {
+    // For command calls, always save previous app
+    previous_app_state.save_previous_app();
+    toggle_window_internal(app, false).await // false because we already saved above
 }
 
 #[tauri::command]

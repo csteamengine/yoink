@@ -30,6 +30,12 @@ pub struct Settings {
 
     #[serde(default)]
     pub queue_mode_enabled: bool,
+
+    #[serde(default = "default_true")]
+    pub auto_paste: bool,
+
+    #[serde(default)]
+    pub sticky_mode: bool,
 }
 
 fn default_hotkey() -> String {
@@ -71,6 +77,8 @@ impl Default for Settings {
             show_timestamps: true,
             excluded_apps: Vec::new(),
             queue_mode_enabled: false,
+            auto_paste: true,
+            sticky_mode: false,
         }
     }
 }

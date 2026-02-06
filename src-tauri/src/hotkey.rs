@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 pub struct HotkeyManager {
@@ -25,7 +25,26 @@ impl HotkeyManager {
                 // Toggle window visibility
                 let app = app_clone.clone();
                 tauri::async_runtime::spawn(async move {
-                    let _ = crate::window::toggle_window(app).await;
+                    // Check if window is already visible
+                    let is_visible = crate::window::is_window_visible(app.clone())
+                        .await
+                        .unwrap_or(false);
+
+                    if is_visible {
+                        // Window is visible, just hide it
+                        let _ = crate::window::hide_window(app).await;
+                    } else {
+                        // Window is not visible, show it and start quick-switch mode
+                        let _ = crate::window::toggle_window_internal(app.clone(), true).await;
+
+                        // Start quick-switch mode (monitors for V presses and modifier releases)
+                        if let Some(input_monitor) =
+                            app.try_state::<crate::input_monitor::InputMonitor>()
+                        {
+                            let app_for_monitor = app.clone();
+                            input_monitor.start_quick_switch(app_for_monitor);
+                        }
+                    }
                 });
             })
             .map_err(|e| e.to_string())?;

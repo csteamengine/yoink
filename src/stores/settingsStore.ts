@@ -12,6 +12,8 @@ export interface Settings {
   show_timestamps: boolean;
   excluded_apps: string[];
   queue_mode_enabled: boolean;
+  auto_paste: boolean;
+  sticky_mode: boolean;
 }
 
 interface SettingsState {
@@ -47,6 +49,8 @@ const defaultSettings: Settings = {
   show_timestamps: true,
   excluded_apps: [],
   queue_mode_enabled: false,
+  auto_paste: true,
+  sticky_mode: false,
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
