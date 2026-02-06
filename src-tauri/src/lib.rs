@@ -3,12 +3,7 @@ mod collections;
 mod database;
 mod exclusions;
 mod hotkey;
-<<<<<<< Updated upstream
-mod input_monitor;
-mod paste_helper;
-=======
 mod keyboard;
->>>>>>> Stashed changes
 mod qrcode;
 mod settings;
 mod window;
@@ -16,12 +11,13 @@ mod window;
 use clipboard::ClipboardMonitor;
 use database::Database;
 use hotkey::HotkeyManager;
-use input_monitor::InputMonitor;
-use paste_helper::PreviousAppState;
 use settings::SettingsManager;
 
 #[cfg(target_os = "macos")]
 use window::{set_window_blur, PreviousAppState, WebviewWindowExt, MAIN_WINDOW_LABEL};
+
+#[cfg(not(target_os = "macos"))]
+use window::MAIN_WINDOW_LABEL;
 
 use tauri::{
     image::Image,
@@ -79,19 +75,9 @@ pub fn run() {
             }
             app.manage(clipboard_monitor);
 
-<<<<<<< Updated upstream
-            // Initialize previous app state for paste-back functionality
-            let previous_app_state = PreviousAppState::new();
-            app.manage(previous_app_state);
-
-            // Initialize input monitor for quick-switch mode
-            let input_monitor = InputMonitor::new();
-            app.manage(input_monitor);
-=======
             // Initialize previous app state tracker (for restoring focus after hiding)
             #[cfg(target_os = "macos")]
             app.manage(PreviousAppState::new());
->>>>>>> Stashed changes
 
             // Setup window as NSPanel on macOS
             #[cfg(target_os = "macos")]
@@ -148,9 +134,6 @@ pub fn run() {
             // Hotkey commands
             hotkey::register_hotkey,
             hotkey::validate_hotkey,
-            // Input monitor commands
-            input_monitor::is_quick_switch_active,
-            input_monitor::stop_quick_switch,
             // Exclusions commands
             exclusions::get_current_app,
             exclusions::check_app_excluded,
@@ -199,27 +182,15 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             "open" => {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    // Save previous app before showing window
-                    if let Some(previous_app_state) = app.try_state::<PreviousAppState>() {
-                        previous_app_state.save_previous_app();
-                    }
-                    let _ = window::show_window_internal(app).await;
+                    let _ = window::show_window(app).await;
                 });
             }
             "settings" => {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
-<<<<<<< Updated upstream
-                    // Save previous app before showing window
-                    if let Some(previous_app_state) = app.try_state::<PreviousAppState>() {
-                        previous_app_state.save_previous_app();
-                    }
-                    let _ = window::show_window_internal(app.clone()).await;
-=======
                     let _ = window::show_window(app.clone()).await;
                     // Add delay to allow frontend to set up listeners
                     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
->>>>>>> Stashed changes
                     let _ = app.emit("open-settings", ());
                 });
             }

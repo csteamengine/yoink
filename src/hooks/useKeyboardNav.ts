@@ -1,6 +1,5 @@
 import { useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { useClipboardStore } from '@/stores/clipboardStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useQueueStore } from '@/stores/queueStore';
@@ -179,34 +178,5 @@ export function useKeyboardNav() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-<<<<<<< Updated upstream
-  }, [handleKeyDown]);
-
-  // Listen for quick-switch events from backend
-  useEffect(() => {
-    let unlistenCycle: (() => void) | undefined;
-    let unlistenConfirm: (() => void) | undefined;
-
-    const setupQuickSwitchListeners = async () => {
-      // Cycle event: move to next item
-      unlistenCycle = await listen('quick-switch-cycle', () => {
-        selectNext();
-      });
-
-      // Confirm event: paste selected item
-      unlistenConfirm = await listen('quick-switch-confirm', () => {
-        pasteSelected();
-      });
-    };
-
-    setupQuickSwitchListeners();
-
-    return () => {
-      unlistenCycle?.();
-      unlistenConfirm?.();
-    };
-  }, [selectNext, pasteSelected]);
-=======
   }, [handleKeyDown, handleKeyUp]);
->>>>>>> Stashed changes
 }

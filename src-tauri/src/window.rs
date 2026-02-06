@@ -155,7 +155,7 @@ impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
 #[cfg(target_os = "macos")]
 pub fn set_window_blur<R: Runtime>(window: &WebviewWindow<R>, _enabled: bool) -> Result<(), String> {
     use cocoa::appkit::{NSColor, NSWindow as NSWindowTrait};
-    use cocoa::base::{id, nil, NO, YES};
+    use cocoa::base::{nil, NO, YES};
     use cocoa::foundation::NSRect;
     use objc::{class, msg_send, sel, sel_impl};
 
@@ -256,8 +256,8 @@ pub fn set_window_blur<R: Runtime>(_window: &WebviewWindow<R>, _enabled: bool) -
 
 // Tauri commands
 
-/// Internal function to show window (without state parameter, for internal use)
-pub async fn show_window_internal<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
+#[tauri::command]
+pub async fn show_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use crate::window::WebviewWindowExt;
@@ -297,16 +297,6 @@ pub async fn show_window_internal<R: Runtime>(app: tauri::AppHandle<R>) -> Resul
 }
 
 #[tauri::command]
-pub async fn show_window<R: Runtime>(
-    app: tauri::AppHandle<R>,
-    previous_app_state: tauri::State<'_, crate::paste_helper::PreviousAppState>,
-) -> Result<(), String> {
-    // Save the currently focused app before showing Yoink
-    previous_app_state.save_previous_app();
-    show_window_internal(app).await
-}
-
-#[tauri::command]
 pub async fn hide_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -335,11 +325,8 @@ pub async fn hide_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), Str
     Ok(())
 }
 
-/// Internal function to toggle window, with optional previous app saving
-pub async fn toggle_window_internal<R: Runtime>(
-    app: tauri::AppHandle<R>,
-    save_previous_app: bool,
-) -> Result<(), String> {
+#[tauri::command]
+pub async fn toggle_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use crate::window::WebviewWindowExt;
@@ -360,22 +347,11 @@ pub async fn toggle_window_internal<R: Runtime>(
                     state.restore();
                 }
             } else {
-<<<<<<< Updated upstream
-                // Save the currently focused app before showing Yoink
-                if save_previous_app {
-                    if let Some(previous_app_state) =
-                        app.try_state::<crate::paste_helper::PreviousAppState>()
-                    {
-                        previous_app_state.save_previous_app();
-                    }
-                }
-=======
                 // Opening - capture the current frontmost app first
                 if let Some(prev_app_state) = app.try_state::<PreviousAppState>() {
                     prev_app_state.capture();
                 }
 
->>>>>>> Stashed changes
                 if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
                     let _ = window.center_at_cursor_monitor();
                 }
@@ -403,30 +379,12 @@ pub async fn toggle_window_internal<R: Runtime>(
         if is_visible {
             window.hide().map_err(|e| e.to_string())?;
         } else {
-            // Save the currently focused app before showing Yoink
-            if save_previous_app {
-                if let Some(previous_app_state) =
-                    app.try_state::<crate::paste_helper::PreviousAppState>()
-                {
-                    previous_app_state.save_previous_app();
-                }
-            }
             window.show().map_err(|e| e.to_string())?;
             window.set_focus().map_err(|e| e.to_string())?;
         }
     }
 
     Ok(())
-}
-
-#[tauri::command]
-pub async fn toggle_window<R: Runtime>(
-    app: tauri::AppHandle<R>,
-    previous_app_state: tauri::State<'_, crate::paste_helper::PreviousAppState>,
-) -> Result<(), String> {
-    // For command calls, always save previous app
-    previous_app_state.save_previous_app();
-    toggle_window_internal(app, false).await // false because we already saved above
 }
 
 #[tauri::command]
