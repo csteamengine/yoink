@@ -20,7 +20,7 @@ export function useKeyboardNav() {
 
   const { isSettingsOpen, closeSettings, openSettings } = useSettingsStore();
   const { isActive: queueModeActive, pasteNext } = useQueueStore();
-  const { isHotkeyMode, exitHotkeyMode } = useHotkeyModeStore();
+  const { isHotkeyMode, exitHotkeyMode, cycleNext } = useHotkeyModeStore();
 
   const handleKeyDown = useCallback(
     async (e: KeyboardEvent) => {
@@ -56,9 +56,15 @@ export function useKeyboardNav() {
         return;
       }
 
-      // V cycling in hotkey mode is handled by the backend polling thread
-      // (CGEventSourceKeyState) which emits 'hotkey-cycle' events.
-      // This avoids issues with the webview losing key window status.
+      // V key cycles to next item in hotkey mode.
+      // Uses e.code for consistency regardless of modifiers held.
+      // cycleNext() reads isHotkeyMode from store (not stale closure) and deduplicates
+      // with backend hotkey-cycle events to prevent double-cycling.
+      if (e.code === 'KeyV' && useHotkeyModeStore.getState().isHotkeyMode) {
+        e.preventDefault();
+        cycleNext();
+        return;
+      }
 
       // If settings is open, don't handle other keys
       if (isSettingsOpen) return;
@@ -152,6 +158,7 @@ export function useKeyboardNav() {
       pasteNext,
       isHotkeyMode,
       exitHotkeyMode,
+      cycleNext,
     ]
   );
 

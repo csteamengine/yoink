@@ -9,8 +9,12 @@ interface HotkeyModeState {
   // Actions
   enterHotkeyMode: () => void;
   exitHotkeyMode: () => void;
+  cycleNext: () => void;
   setupListeners: () => Promise<() => void>;
 }
+
+// Dedup timestamp shared by all cycle sources (global shortcut, backend polling, frontend keydown)
+let lastCycleTime = 0;
 
 export const useHotkeyModeStore = create<HotkeyModeState>((set, get) => ({
   isHotkeyMode: false,
@@ -31,6 +35,23 @@ export const useHotkeyModeStore = create<HotkeyModeState>((set, get) => ({
     set({ isHotkeyMode: false });
   },
 
+  // Unified cycle handler with dedup - called from hotkey-cycle events AND frontend keydown
+  cycleNext: () => {
+    if (!get().isHotkeyMode) return;
+    const now = Date.now();
+    if (now - lastCycleTime < 100) return;
+    lastCycleTime = now;
+    console.log('[HotkeyMode] Cycling to next item');
+    const { selectNext } = useClipboardStore.getState();
+    selectNext();
+    // Sync new selection to backend
+    const { items, selectedIndex } = useClipboardStore.getState();
+    const newItem = items[selectedIndex];
+    if (newItem) {
+      invoke('set_selected_item', { id: newItem.id });
+    }
+  },
+
   setupListeners: async () => {
     // Listen for hotkey-mode-started event from backend
     const unlistenHotkeyMode = await listen('hotkey-mode-started', () => {
@@ -42,24 +63,9 @@ export const useHotkeyModeStore = create<HotkeyModeState>((set, get) => ({
       get().exitHotkeyMode();
     });
 
-    // Listen for hotkey-cycle event (V pressed again while holding modifiers)
-    // Both the global shortcut handler and the backend polling thread can emit
-    // this event for the same V press, so deduplicate within a short window.
-    let lastCycleTime = 0;
+    // Listen for hotkey-cycle event from backend (global shortcut handler or polling thread)
     const unlistenCycle = await listen('hotkey-cycle', () => {
-      if (!get().isHotkeyMode) return;
-      const now = Date.now();
-      if (now - lastCycleTime < 100) return;
-      lastCycleTime = now;
-      console.log('[HotkeyMode] Cycling to next item');
-      const { selectNext } = useClipboardStore.getState();
-      selectNext();
-      // Sync new selection to backend
-      const { items, selectedIndex } = useClipboardStore.getState();
-      const newItem = items[selectedIndex];
-      if (newItem) {
-        invoke('set_selected_item', { id: newItem.id });
-      }
+      get().cycleNext();
     });
 
     return () => {
