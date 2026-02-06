@@ -14,16 +14,18 @@ use hotkey::HotkeyManager;
 use settings::SettingsManager;
 
 #[cfg(target_os = "macos")]
-use window::{set_window_blur, HotkeyModeState, PreviousAppState, WebviewWindowExt, MAIN_WINDOW_LABEL};
+use window::{set_window_blur, HotkeyModeState, PanelHideGuard, PreviousAppState, WebviewWindowExt, MAIN_WINDOW_LABEL};
 
 #[cfg(not(target_os = "macos"))]
 use window::HotkeyModeState;
+
+use window::SelectedItemState;
 
 use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
-    Emitter, Manager,
+    Manager,
 };
 
 #[cfg(target_os = "macos")]
@@ -79,8 +81,91 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.manage(PreviousAppState::new());
 
+            // Initialize panel hide guard (prevents re-entrant order_out)
+            #[cfg(target_os = "macos")]
+            app.manage(PanelHideGuard::new());
+
             // Initialize hotkey mode state (for preventing auto-hide while modifiers held)
             app.manage(HotkeyModeState::new());
+
+            // Initialize selected item state (for hotkey mode paste on modifier release)
+            app.manage(SelectedItemState::new());
+
+            // Start modifier key polling for hotkey mode paste-on-release (macOS)
+            #[cfg(target_os = "macos")]
+            {
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    extern "C" {
+                        fn CGEventSourceFlagsState(stateID: u32) -> u64;
+                    }
+
+                    // kCGEventFlagMaskCommand and kCGEventFlagMaskShift
+                    const MASK_COMMAND: u64 = 0x100000;
+                    const MASK_SHIFT: u64 = 0x20000;
+
+                    loop {
+                        // Poll every 30ms - fast enough to feel instant
+                        std::thread::sleep(std::time::Duration::from_millis(30));
+
+                        // Only check when hotkey mode is active
+                        let is_active = app_handle
+                            .try_state::<HotkeyModeState>()
+                            .map_or(false, |s| s.is_active());
+
+                        if !is_active {
+                            continue;
+                        }
+
+                        // Query physical modifier key state from HID system
+                        let (cmd_held, shift_held) = unsafe {
+                            // 1 = kCGEventSourceStateHIDSystemState (physical keys)
+                            let flags = CGEventSourceFlagsState(1);
+                            (flags & MASK_COMMAND != 0, flags & MASK_SHIFT != 0)
+                        };
+
+                        if !cmd_held && !shift_held {
+                            // Brief delay to allow ESC/Enter to exit hotkey mode first
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+
+                            // All modifiers released - re-check after delay
+                            if let Some(hotkey_state) =
+                                app_handle.try_state::<HotkeyModeState>()
+                            {
+                                if hotkey_state.is_active() {
+                                    // Exit hotkey mode immediately to prevent re-entrance
+                                    hotkey_state.exit();
+
+                                    if let Some(selected_state) =
+                                        app_handle.try_state::<SelectedItemState>()
+                                    {
+                                        if let Some(item_id) = selected_state.take() {
+                                            let app = app_handle.clone();
+                                            tauri::async_runtime::spawn(async move {
+                                                if let Err(e) =
+                                                    crate::clipboard::do_paste_and_simulate(
+                                                        app, item_id,
+                                                    )
+                                                    .await
+                                                {
+                                                    log::warn!("Failed to paste on modifier release: {}", e);
+                                                }
+                                            });
+                                        } else {
+                                            // No selected item, just hide
+                                            let app = app_handle.clone();
+                                            tauri::async_runtime::spawn(async move {
+                                                let _ =
+                                                    crate::window::hide_window(app).await;
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
 
             // Setup window as NSPanel on macOS
             #[cfg(target_os = "macos")]
@@ -127,6 +212,7 @@ pub fn run() {
             window::is_window_visible,
             window::enter_hotkey_mode,
             window::exit_hotkey_mode,
+            window::set_selected_item,
             // Settings commands
             settings::get_settings,
             settings::update_settings,
@@ -194,9 +280,14 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
                     let _ = window::show_window(app.clone()).await;
-                    // Add delay to allow frontend to set up listeners
+                    // Small delay to ensure window is visible and webview is ready
                     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                    let _ = app.emit("open-settings", ());
+                    // Use eval to directly trigger settings - more reliable for NSPanel
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.eval(
+                            "window.__openSettings && window.__openSettings()"
+                        );
+                    }
                 });
             }
             "upgrade" => {

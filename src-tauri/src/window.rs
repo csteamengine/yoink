@@ -23,6 +23,31 @@ use cocoa::base::id;
 
 pub const MAIN_WINDOW_LABEL: &str = "main";
 
+/// Guards against re-entrant panel hide (order_out triggers windowDidResignKey)
+pub struct PanelHideGuard {
+    is_hiding: AtomicBool,
+}
+
+impl PanelHideGuard {
+    pub fn new() -> Self {
+        Self {
+            is_hiding: AtomicBool::new(false),
+        }
+    }
+
+    pub fn set_hiding(&self) {
+        self.is_hiding.store(true, Ordering::SeqCst);
+    }
+
+    pub fn clear_hiding(&self) {
+        self.is_hiding.store(false, Ordering::SeqCst);
+    }
+
+    pub fn is_hiding(&self) -> bool {
+        self.is_hiding.load(Ordering::SeqCst)
+    }
+}
+
 /// Tracks whether we're in hotkey mode (modifiers held after Cmd+Shift+V)
 /// When active, the panel should NOT auto-hide on focus loss
 pub struct HotkeyModeState {
@@ -52,6 +77,27 @@ impl HotkeyModeState {
     }
 }
 
+/// Stores the ID of the currently selected clipboard item (for hotkey mode paste)
+pub struct SelectedItemState {
+    id: std::sync::Mutex<Option<String>>,
+}
+
+impl SelectedItemState {
+    pub fn new() -> Self {
+        Self {
+            id: std::sync::Mutex::new(None),
+        }
+    }
+
+    pub fn set(&self, id: String) {
+        *self.id.lock().unwrap() = Some(id);
+    }
+
+    pub fn take(&self) -> Option<String> {
+        self.id.lock().unwrap().take()
+    }
+}
+
 /// Stores the previously focused application so we can restore focus to it
 #[cfg(target_os = "macos")]
 pub struct PreviousAppState {
@@ -73,7 +119,14 @@ impl PreviousAppState {
             let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
             let frontmost: id = msg_send![workspace, frontmostApplication];
             if !frontmost.is_null() {
-                *self.app.lock().unwrap() = Some(frontmost);
+                // Retain the new reference to prevent deallocation
+                let _: id = msg_send![frontmost, retain];
+                let mut guard = self.app.lock().unwrap();
+                // Release old reference if any
+                if let Some(old) = guard.take() {
+                    let _: () = msg_send![old, release];
+                }
+                *guard = Some(frontmost);
             }
         }
     }
@@ -85,6 +138,8 @@ impl PreviousAppState {
         if let Some(prev_app) = app {
             unsafe {
                 let _: () = msg_send![prev_app, activateWithOptions: 1u64]; // NSApplicationActivateIgnoringOtherApps = 1
+                // Balance the retain from capture
+                let _: () = msg_send![prev_app, release];
             }
         }
     }
@@ -128,6 +183,15 @@ impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
             if delegate_name == "window_did_resign_key" {
                 log::info!("panel resigned key window");
 
+                // Skip if a programmatic hide is already in progress
+                // (prevents re-entrant order_out from hide_window → delegate → order_out)
+                if let Some(guard) = app_handle.try_state::<PanelHideGuard>() {
+                    if guard.is_hiding() {
+                        log::info!("Programmatic hide in progress, skipping delegate hide");
+                        return;
+                    }
+                }
+
                 // Check if hotkey mode is active (user holding modifiers)
                 let hotkey_mode_active = if let Some(hotkey_state) =
                     app_handle.try_state::<HotkeyModeState>()
@@ -138,8 +202,19 @@ impl<R: Runtime> WebviewWindowExt for WebviewWindow<R> {
                 };
 
                 // In hotkey mode, don't auto-hide - user is still holding modifiers
+                // Re-activate app and re-make key window so webview keeps receiving
+                // keyboard events (ESC, V cycling, arrow keys, etc.)
                 if hotkey_mode_active {
-                    log::info!("Hotkey mode active, not hiding panel");
+                    log::info!("Hotkey mode active, re-establishing key window");
+                    use objc::{msg_send, sel, sel_impl, class};
+                    unsafe {
+                        let ns_app: cocoa::base::id =
+                            msg_send![class!(NSApplication), sharedApplication];
+                        let _: () = msg_send![ns_app, activateIgnoringOtherApps: true];
+                    }
+                    if let Ok(panel) = app_handle.get_webview_panel(MAIN_WINDOW_LABEL) {
+                        panel.make_key_window();
+                    }
                     return;
                 }
 
@@ -356,10 +431,20 @@ pub async fn hide_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), Str
         let prev_app_state = app.try_state::<PreviousAppState>();
 
         if let Ok(panel) = app.get_webview_panel(MAIN_WINDOW_LABEL) {
+            // Set guard to prevent delegate from re-entering order_out
+            let hide_guard = app.try_state::<PanelHideGuard>();
+            if let Some(ref guard) = hide_guard {
+                guard.set_hiding();
+            }
+
             // AppKit operations must run on the main thread
             app.run_on_main_thread(move || {
                 panel.order_out(None);
             }).map_err(|e| e.to_string())?;
+
+            if let Some(ref guard) = hide_guard {
+                guard.clear_hiding();
+            }
 
             // Restore focus to the previous app
             if let Some(state) = prev_app_state {
@@ -395,9 +480,19 @@ pub async fn toggle_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), S
                 // Closing - get previous app state for restoration
                 let prev_app_state = app.try_state::<PreviousAppState>();
 
+                // Set guard to prevent delegate from re-entering order_out
+                let hide_guard = app.try_state::<PanelHideGuard>();
+                if let Some(ref guard) = hide_guard {
+                    guard.set_hiding();
+                }
+
                 app.run_on_main_thread(move || {
                     panel.order_out(None);
                 }).map_err(|e| e.to_string())?;
+
+                if let Some(ref guard) = hide_guard {
+                    guard.clear_hiding();
+                }
 
                 // Restore focus to previous app
                 if let Some(state) = prev_app_state {
@@ -468,4 +563,9 @@ pub fn enter_hotkey_mode(hotkey_state: tauri::State<'_, HotkeyModeState>) {
 #[tauri::command]
 pub fn exit_hotkey_mode(hotkey_state: tauri::State<'_, HotkeyModeState>) {
     hotkey_state.exit();
+}
+
+#[tauri::command]
+pub fn set_selected_item(state: tauri::State<'_, SelectedItemState>, id: String) {
+    state.set(id);
 }

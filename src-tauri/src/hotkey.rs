@@ -4,7 +4,8 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 #[cfg(target_os = "macos")]
 use tauri_nspanel::ManagerExt;
 
-use crate::window::HotkeyModeState;
+use crate::database::Database;
+use crate::window::{HotkeyModeState, SelectedItemState};
 
 pub struct HotkeyManager {
     current_shortcut: std::sync::Mutex<Option<Shortcut>>,
@@ -69,6 +70,17 @@ impl HotkeyManager {
                         // Enter backend hotkey mode to prevent auto-hide while modifiers held
                         if let Some(hotkey_state) = app.try_state::<HotkeyModeState>() {
                             hotkey_state.enter();
+                        }
+                        // Set initial selected item to the most recent clipboard item
+                        let first_item_id = app
+                            .try_state::<Database>()
+                            .and_then(|db| db.get_items(1, 0, None, None).ok())
+                            .and_then(|items| items.into_iter().next())
+                            .map(|item| item.id);
+                        if let Some(id) = first_item_id {
+                            if let Some(selected_state) = app.try_state::<SelectedItemState>() {
+                                selected_state.set(id);
+                            }
                         }
                         let _ = app.emit("hotkey-mode-started", ());
                     }

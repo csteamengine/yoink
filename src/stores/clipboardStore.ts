@@ -155,8 +155,8 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
 
   pasteItem: async (id: string) => {
     try {
-      // paste_item handles hiding window and auto-paste to previous app
-      await invoke('paste_item', { id });
+      // Write to clipboard, hide window, restore focus, and simulate Cmd+V
+      await invoke('paste_and_simulate', { id });
     } catch (error) {
       set({ error: String(error) });
     }

@@ -193,6 +193,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       get().openSettings();
     });
 
+    // Register global callback for backend to call via eval (tray menu)
+    (window as any).__openSettings = () => {
+      get().openSettings();
+    };
+
     // Listen for system theme changes
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleThemeChange = () => {
@@ -204,6 +209,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
     return () => {
       unlistenSettings();
+      delete (window as any).__openSettings;
       mediaQuery.removeEventListener('change', handleThemeChange);
     };
   },

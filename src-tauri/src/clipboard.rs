@@ -314,13 +314,21 @@ pub async fn set_expiration(
 /// Paste item and simulate Cmd+V keystroke (for Flycut-style behavior)
 /// This writes the content to clipboard, hides the window, waits for focus
 /// to return to the previous app, then simulates Cmd+V.
-#[tauri::command]
-pub async fn paste_and_simulate<R: Runtime>(
+/// Can be called both as a Tauri command and directly from Rust.
+pub async fn do_paste_and_simulate<R: Runtime>(
     app: AppHandle<R>,
-    db: tauri::State<'_, Database>,
     id: String,
 ) -> Result<(), String> {
-    let item = db.get_item(&id).map_err(|e| e.to_string())?;
+    // Exit hotkey mode immediately to prevent the modifier-release poller
+    // from also trying to paste (race condition)
+    if let Some(hotkey_state) = app.try_state::<HotkeyModeState>() {
+        hotkey_state.exit();
+    }
+
+    let item = {
+        let db = app.state::<Database>();
+        db.get_item(&id).map_err(|e| e.to_string())?
+    };
 
     if let Some(item) = item {
         let clipboard = app.clipboard();
@@ -342,11 +350,6 @@ pub async fn paste_and_simulate<R: Runtime>(
             }
         }
 
-        // Exit hotkey mode before hiding
-        if let Some(hotkey_state) = app.try_state::<HotkeyModeState>() {
-            hotkey_state.exit();
-        }
-
         // Hide window (this also restores focus to the previous app)
         crate::window::hide_window(app.clone()).await?;
 
@@ -363,4 +366,13 @@ pub async fn paste_and_simulate<R: Runtime>(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn paste_and_simulate<R: Runtime>(
+    app: AppHandle<R>,
+    _db: tauri::State<'_, Database>,
+    id: String,
+) -> Result<(), String> {
+    do_paste_and_simulate(app, id).await
 }

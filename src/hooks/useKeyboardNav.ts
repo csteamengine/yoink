@@ -9,7 +9,6 @@ export function useKeyboardNav() {
   const {
     items,
     pinnedItems,
-    selectedIndex,
     selectNext,
     selectPrevious,
     pasteSelected,
@@ -19,9 +18,9 @@ export function useKeyboardNav() {
     setSelectedIndex,
   } = useClipboardStore();
 
-  const { isSettingsOpen, closeSettings } = useSettingsStore();
+  const { isSettingsOpen, closeSettings, openSettings } = useSettingsStore();
   const { isActive: queueModeActive, pasteNext } = useQueueStore();
-  const { isHotkeyMode, exitHotkeyMode, pasteAndSimulate } = useHotkeyModeStore();
+  const { isHotkeyMode, exitHotkeyMode } = useHotkeyModeStore();
 
   const handleKeyDown = useCallback(
     async (e: KeyboardEvent) => {
@@ -36,6 +35,9 @@ export function useKeyboardNav() {
       if (e.key === 'Escape') {
         if (isHotkeyMode) {
           exitHotkeyMode();
+          // Exit backend hotkey mode immediately to prevent the modifier-release
+          // poller from pasting after we hide the window
+          invoke('exit_hotkey_mode');
           await invoke('hide_window');
           return;
         }
@@ -47,11 +49,21 @@ export function useKeyboardNav() {
         return;
       }
 
-      // In hotkey mode, V key (with modifiers) cycles to next item
-      if (isHotkeyMode && e.key.toLowerCase() === 'v' && (e.metaKey || e.shiftKey)) {
-        console.log('[HotkeyMode] V pressed with modifiers, cycling to next');
+      // Cmd+, to open settings
+      if (e.metaKey && e.key === ',') {
+        e.preventDefault();
+        openSettings();
+        return;
+      }
+
+      // In hotkey mode, V key cycles to next item (handles Cmd-only or Shift-only cases)
+      if (isHotkeyMode && e.key.toLowerCase() === 'v') {
         e.preventDefault();
         selectNext();
+        // Sync selection to backend for modifier-release paste
+        const state = useClipboardStore.getState();
+        const item = state.items[state.selectedIndex];
+        if (item) invoke('set_selected_item', { id: item.id });
         return;
       }
 
@@ -62,12 +74,24 @@ export function useKeyboardNav() {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         selectNext();
+        // Sync selection to backend for hotkey mode paste on modifier release
+        if (isHotkeyMode) {
+          const state = useClipboardStore.getState();
+          const item = state.items[state.selectedIndex];
+          if (item) invoke('set_selected_item', { id: item.id });
+        }
         return;
       }
 
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         selectPrevious();
+        // Sync selection to backend for hotkey mode paste on modifier release
+        if (isHotkeyMode) {
+          const state = useClipboardStore.getState();
+          const item = state.items[state.selectedIndex];
+          if (item) invoke('set_selected_item', { id: item.id });
+        }
         return;
       }
 
@@ -121,7 +145,6 @@ export function useKeyboardNav() {
     [
       items,
       pinnedItems,
-      selectedIndex,
       selectNext,
       selectPrevious,
       pasteSelected,
@@ -131,6 +154,7 @@ export function useKeyboardNav() {
       setSelectedIndex,
       isSettingsOpen,
       closeSettings,
+      openSettings,
       queueModeActive,
       pasteNext,
       isHotkeyMode,
@@ -138,45 +162,10 @@ export function useKeyboardNav() {
     ]
   );
 
-  // Handle key up for detecting modifier release in hotkey mode
-  const handleKeyUp = useCallback(
-    async (e: KeyboardEvent) => {
-      // Only process modifier key releases in hotkey mode
-      if (!isHotkeyMode) return;
-
-      // Check if this is a modifier key being released
-      const isModifierRelease = e.key === 'Meta' || e.key === 'Shift';
-      if (!isModifierRelease) return;
-
-      console.log(`[HotkeyMode] Modifier released: ${e.key}, meta=${e.metaKey}, shift=${e.shiftKey}`);
-
-      // Use the event's actual modifier state (more reliable than tracking)
-      // After releasing Meta, e.metaKey will be false
-      // After releasing Shift, e.shiftKey will be false
-      const metaStillHeld = e.metaKey;
-      const shiftStillHeld = e.shiftKey;
-
-      // Only paste when BOTH modifiers are now released
-      if (!metaStillHeld && !shiftStillHeld) {
-        console.log('[HotkeyMode] Both modifiers released, pasting...');
-        const selectedItem = items[selectedIndex];
-        if (selectedItem) {
-          await pasteAndSimulate(selectedItem.id);
-        } else {
-          exitHotkeyMode();
-          await invoke('hide_window');
-        }
-      }
-    },
-    [isHotkeyMode, items, selectedIndex, pasteAndSimulate, exitHotkeyMode]
-  );
-
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [handleKeyDown, handleKeyUp]);
+  }, [handleKeyDown]);
 }

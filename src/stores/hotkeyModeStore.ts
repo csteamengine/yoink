@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { useClipboardStore } from './clipboardStore';
 
 interface HotkeyModeState {
   isHotkeyMode: boolean;
@@ -8,7 +9,6 @@ interface HotkeyModeState {
   // Actions
   enterHotkeyMode: () => void;
   exitHotkeyMode: () => void;
-  pasteAndSimulate: (id: string) => Promise<void>;
   setupListeners: () => Promise<() => void>;
 }
 
@@ -18,22 +18,17 @@ export const useHotkeyModeStore = create<HotkeyModeState>((set, get) => ({
   enterHotkeyMode: () => {
     console.log('[HotkeyMode] Entering hotkey mode');
     set({ isHotkeyMode: true });
+    // Sync current selected item to backend for modifier-release paste
+    const { items, selectedIndex } = useClipboardStore.getState();
+    const selectedItem = items[selectedIndex];
+    if (selectedItem) {
+      invoke('set_selected_item', { id: selectedItem.id });
+    }
   },
 
   exitHotkeyMode: () => {
     console.log('[HotkeyMode] Exiting hotkey mode');
     set({ isHotkeyMode: false });
-  },
-
-  pasteAndSimulate: async (id: string) => {
-    try {
-      // Exit hotkey mode first
-      set({ isHotkeyMode: false });
-      // Call backend to paste and simulate Cmd+V
-      await invoke('paste_and_simulate', { id });
-    } catch (error) {
-      console.error('Failed to paste and simulate:', error);
-    }
   },
 
   setupListeners: async () => {
@@ -47,9 +42,24 @@ export const useHotkeyModeStore = create<HotkeyModeState>((set, get) => ({
       get().exitHotkeyMode();
     });
 
+    // Listen for hotkey-cycle event (V pressed again while holding modifiers)
+    const unlistenCycle = await listen('hotkey-cycle', () => {
+      if (!get().isHotkeyMode) return;
+      console.log('[HotkeyMode] Cycling to next item');
+      const { selectNext } = useClipboardStore.getState();
+      selectNext();
+      // Sync new selection to backend
+      const { items, selectedIndex } = useClipboardStore.getState();
+      const newItem = items[selectedIndex];
+      if (newItem) {
+        invoke('set_selected_item', { id: newItem.id });
+      }
+    });
+
     return () => {
       unlistenHotkeyMode();
       unlistenPanelHidden();
+      unlistenCycle();
     };
   },
 }));
