@@ -1,4 +1,5 @@
 use crate::database::{ClipboardItem, Database};
+use crate::keyboard;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
@@ -325,4 +326,53 @@ pub async fn set_expiration(
 
     db.set_item_expiration(&item_id, expires)
         .map_err(|e| e.to_string())
+}
+
+/// Paste item and simulate Cmd+V keystroke (for Flycut-style behavior)
+/// This writes the content to clipboard, hides the window, waits for focus
+/// to return to the previous app, then simulates Cmd+V.
+#[tauri::command]
+pub async fn paste_and_simulate<R: Runtime>(
+    app: AppHandle<R>,
+    db: tauri::State<'_, Database>,
+    id: String,
+) -> Result<(), String> {
+    let item = db.get_item(&id).map_err(|e| e.to_string())?;
+
+    if let Some(item) = item {
+        let clipboard = app.clipboard();
+
+        // Write content to clipboard
+        match item.content_type.as_str() {
+            "image" => {
+                // For now, write as text (TODO: handle image properly)
+                if let Ok(_bytes) = STANDARD.decode(&item.content) {
+                    clipboard
+                        .write_text(&item.preview)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+            _ => {
+                clipboard
+                    .write_text(&item.content)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+
+        // Hide window (this also restores focus to the previous app)
+        crate::window::hide_window(app.clone()).await?;
+
+        // Wait for focus to fully return to previous app
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Simulate Cmd+V on main thread
+        app.run_on_main_thread(|| {
+            if let Err(e) = keyboard::simulate_cmd_v() {
+                log::warn!("Failed to simulate Cmd+V: {}", e);
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
 }

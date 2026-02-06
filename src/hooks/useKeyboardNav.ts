@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { useClipboardStore } from '@/stores/clipboardStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useQueueStore } from '@/stores/queueStore';
+import { useHotkeyModeStore } from '@/stores/hotkeyModeStore';
 
 export function useKeyboardNav() {
   const {
@@ -21,6 +22,7 @@ export function useKeyboardNav() {
 
   const { isSettingsOpen, closeSettings } = useSettingsStore();
   const { isActive: queueModeActive, pasteNext } = useQueueStore();
+  const { isHotkeyMode, exitHotkeyMode, pasteAndSimulate } = useHotkeyModeStore();
 
   const handleKeyDown = useCallback(
     async (e: KeyboardEvent) => {
@@ -31,13 +33,26 @@ export function useKeyboardNav() {
         target.tagName === 'TEXTAREA' ||
         target.isContentEditable;
 
-      // Escape always works
+      // Escape always works - also exits hotkey mode without pasting
       if (e.key === 'Escape') {
+        if (isHotkeyMode) {
+          exitHotkeyMode();
+          await invoke('hide_window');
+          return;
+        }
         if (isSettingsOpen) {
           closeSettings();
         } else {
           await invoke('hide_window');
         }
+        return;
+      }
+
+      // In hotkey mode, V key (with modifiers) cycles to next item
+      if (isHotkeyMode && e.key.toLowerCase() === 'v' && (e.metaKey || e.shiftKey)) {
+        console.log('[HotkeyMode] V pressed with modifiers, cycling to next');
+        e.preventDefault();
+        selectNext();
         return;
       }
 
@@ -119,14 +134,52 @@ export function useKeyboardNav() {
       closeSettings,
       queueModeActive,
       pasteNext,
+      isHotkeyMode,
+      exitHotkeyMode,
     ]
+  );
+
+  // Handle key up for detecting modifier release in hotkey mode
+  const handleKeyUp = useCallback(
+    async (e: KeyboardEvent) => {
+      // Only process modifier key releases in hotkey mode
+      if (!isHotkeyMode) return;
+
+      // Check if this is a modifier key being released
+      const isModifierRelease = e.key === 'Meta' || e.key === 'Shift';
+      if (!isModifierRelease) return;
+
+      console.log(`[HotkeyMode] Modifier released: ${e.key}, meta=${e.metaKey}, shift=${e.shiftKey}`);
+
+      // Use the event's actual modifier state (more reliable than tracking)
+      // After releasing Meta, e.metaKey will be false
+      // After releasing Shift, e.shiftKey will be false
+      const metaStillHeld = e.metaKey;
+      const shiftStillHeld = e.shiftKey;
+
+      // Only paste when BOTH modifiers are now released
+      if (!metaStillHeld && !shiftStillHeld) {
+        console.log('[HotkeyMode] Both modifiers released, pasting...');
+        const selectedItem = items[selectedIndex];
+        if (selectedItem) {
+          await pasteAndSimulate(selectedItem.id);
+        } else {
+          exitHotkeyMode();
+          await invoke('hide_window');
+        }
+      }
+    },
+    [isHotkeyMode, items, selectedIndex, pasteAndSimulate, exitHotkeyMode]
   );
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
     };
+<<<<<<< Updated upstream
   }, [handleKeyDown]);
 
   // Listen for quick-switch events from backend
@@ -153,4 +206,7 @@ export function useKeyboardNav() {
       unlistenConfirm?.();
     };
   }, [selectNext, pasteSelected]);
+=======
+  }, [handleKeyDown, handleKeyUp]);
+>>>>>>> Stashed changes
 }

@@ -1,5 +1,12 @@
+<<<<<<< Updated upstream
 use tauri::{AppHandle, Manager, Runtime};
+=======
+use tauri::{AppHandle, Emitter, Runtime};
+>>>>>>> Stashed changes
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+
+#[cfg(target_os = "macos")]
+use tauri_nspanel::ManagerExt;
 
 pub struct HotkeyManager {
     current_shortcut: std::sync::Mutex<Option<Shortcut>>,
@@ -22,9 +29,9 @@ impl HotkeyManager {
 
         app.global_shortcut()
             .on_shortcut(shortcut.clone(), move |_app, _shortcut, _event| {
-                // Toggle window visibility
                 let app = app_clone.clone();
                 tauri::async_runtime::spawn(async move {
+<<<<<<< Updated upstream
                     // Check if window is already visible
                     let is_visible = crate::window::is_window_visible(app.clone())
                         .await
@@ -45,6 +52,32 @@ impl HotkeyManager {
                             input_monitor.start_quick_switch(app_for_monitor);
                         }
                     }
+=======
+                    // Check if window is currently hidden (opening mode)
+                    let is_opening = {
+                        #[cfg(target_os = "macos")]
+                        {
+                            if let Ok(panel) = app.get_webview_panel(crate::window::MAIN_WINDOW_LABEL) {
+                                !panel.is_visible()
+                            } else {
+                                true
+                            }
+                        }
+                        #[cfg(not(target_os = "macos"))]
+                        {
+                            true
+                        }
+                    };
+
+                    // Emit hotkey-mode-started event BEFORE showing window
+                    // Only emit when opening (not when closing)
+                    if is_opening {
+                        let _ = app.emit("hotkey-mode-started", ());
+                    }
+
+                    // Toggle window visibility
+                    let _ = crate::window::toggle_window(app).await;
+>>>>>>> Stashed changes
                 });
             })
             .map_err(|e| e.to_string())?;

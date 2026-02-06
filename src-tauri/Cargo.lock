@@ -6247,7 +6247,12 @@ version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+<<<<<<< Updated upstream
  "cocoa 0.26.1",
+=======
+ "cocoa",
+ "core-graphics 0.24.0",
+>>>>>>> Stashed changes
  "image",
  "log",
  "monitor",

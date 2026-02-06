@@ -3,8 +3,12 @@ mod collections;
 mod database;
 mod exclusions;
 mod hotkey;
+<<<<<<< Updated upstream
 mod input_monitor;
 mod paste_helper;
+=======
+mod keyboard;
+>>>>>>> Stashed changes
 mod qrcode;
 mod settings;
 mod window;
@@ -17,7 +21,7 @@ use paste_helper::PreviousAppState;
 use settings::SettingsManager;
 
 #[cfg(target_os = "macos")]
-use window::{set_window_blur, WebviewWindowExt, MAIN_WINDOW_LABEL};
+use window::{set_window_blur, PreviousAppState, WebviewWindowExt, MAIN_WINDOW_LABEL};
 
 use tauri::{
     image::Image,
@@ -25,6 +29,9 @@ use tauri::{
     tray::TrayIconBuilder,
     Emitter, Manager,
 };
+
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -40,6 +47,10 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            // Hide dock icon on macOS (makes it a menu bar only app)
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(ActivationPolicy::Accessory);
+
             // Get app data directory
             let app_data_dir = app
                 .path()
@@ -68,6 +79,7 @@ pub fn run() {
             }
             app.manage(clipboard_monitor);
 
+<<<<<<< Updated upstream
             // Initialize previous app state for paste-back functionality
             let previous_app_state = PreviousAppState::new();
             app.manage(previous_app_state);
@@ -75,6 +87,11 @@ pub fn run() {
             // Initialize input monitor for quick-switch mode
             let input_monitor = InputMonitor::new();
             app.manage(input_monitor);
+=======
+            // Initialize previous app state tracker (for restoring focus after hiding)
+            #[cfg(target_os = "macos")]
+            app.manage(PreviousAppState::new());
+>>>>>>> Stashed changes
 
             // Setup window as NSPanel on macOS
             #[cfg(target_os = "macos")]
@@ -111,6 +128,7 @@ pub fn run() {
             clipboard::unpin_item,
             clipboard::clear_history,
             clipboard::paste_item,
+            clipboard::paste_and_simulate,
             clipboard::move_to_collection,
             clipboard::set_expiration,
             // Window commands
@@ -168,12 +186,13 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .item(&quit_item)
         .build()?;
 
-    // Create a simple icon (16x16 white square as placeholder)
-    let icon_data: Vec<u8> = vec![255u8; 16 * 16 * 4];
-    let icon = Image::new_owned(icon_data, 16, 16);
+    // Load tray icon from file
+    let icon = Image::from_bytes(include_bytes!("../icons/icon.png"))
+        .expect("Failed to load tray icon");
 
     let _tray = TrayIconBuilder::new()
         .icon(icon)
+        .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -190,11 +209,17 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             "settings" => {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
+<<<<<<< Updated upstream
                     // Save previous app before showing window
                     if let Some(previous_app_state) = app.try_state::<PreviousAppState>() {
                         previous_app_state.save_previous_app();
                     }
                     let _ = window::show_window_internal(app.clone()).await;
+=======
+                    let _ = window::show_window(app.clone()).await;
+                    // Add delay to allow frontend to set up listeners
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+>>>>>>> Stashed changes
                     let _ = app.emit("open-settings", ());
                 });
             }

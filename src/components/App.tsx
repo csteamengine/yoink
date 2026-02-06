@@ -11,6 +11,7 @@ import { useKeyboardNav } from '@/hooks/useKeyboardNav';
 import { useGlobalHotkey } from '@/hooks/useGlobalHotkey';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useProStore } from '@/stores/proStore';
+import { useHotkeyModeStore } from '@/stores/hotkeyModeStore';
 import clsx from 'clsx';
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
   const { settings, loadSettings, setupListeners: setupSettingsListeners, applyTheme } =
     useSettingsStore();
   const { checkAuth } = useProStore();
+  const { isHotkeyMode, setupListeners: setupHotkeyModeListeners } = useHotkeyModeStore();
 
   // Load initial data
   useEffect(() => {
@@ -29,9 +31,14 @@ export default function App() {
     checkAuth();
 
     let cleanupSettings: (() => void) | undefined;
+    let cleanupHotkeyMode: (() => void) | undefined;
 
     setupSettingsListeners().then((unsub) => {
       cleanupSettings = unsub;
+    });
+
+    setupHotkeyModeListeners().then((unsub) => {
+      cleanupHotkeyMode = unsub;
     });
 
     // Apply theme immediately
@@ -46,9 +53,10 @@ export default function App() {
 
     return () => {
       cleanupSettings?.();
+      cleanupHotkeyMode?.();
       window.removeEventListener('blur', handleBlur);
     };
-  }, [loadSettings, checkAuth, setupSettingsListeners, applyTheme]);
+  }, [loadSettings, checkAuth, setupSettingsListeners, setupHotkeyModeListeners, applyTheme]);
 
   return (
     <div
@@ -56,7 +64,9 @@ export default function App() {
         'h-full flex flex-col',
         'glass rounded-xl overflow-hidden',
         'border border-[var(--border-color)]',
-        'shadow-xl'
+        'shadow-xl',
+        // Visual indicator for hotkey mode (Flycut-style)
+        isHotkeyMode && 'ring-2 ring-[var(--accent-color)] ring-inset'
       )}
     >
       {/* Search bar - only shown in sticky mode */}

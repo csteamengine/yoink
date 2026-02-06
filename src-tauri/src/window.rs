@@ -1,4 +1,5 @@
 use tauri::{Manager, Runtime, WebviewWindow};
+use std::sync::Mutex;
 
 #[cfg(target_os = "macos")]
 use tauri::Emitter;
@@ -14,7 +15,53 @@ use tauri_nspanel::{
 #[cfg(target_os = "macos")]
 use cocoa::appkit::NSWindowCollectionBehavior;
 
+#[cfg(target_os = "macos")]
+use cocoa::base::id;
+
 pub const MAIN_WINDOW_LABEL: &str = "main";
+
+/// Stores the previously focused application so we can restore focus to it
+#[cfg(target_os = "macos")]
+pub struct PreviousAppState {
+    app: Mutex<Option<id>>,
+}
+
+#[cfg(target_os = "macos")]
+impl PreviousAppState {
+    pub fn new() -> Self {
+        Self {
+            app: Mutex::new(None),
+        }
+    }
+
+    /// Capture the currently frontmost application (before we show our window)
+    pub fn capture(&self) {
+        use objc::{msg_send, sel, sel_impl, class};
+        unsafe {
+            let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+            let frontmost: id = msg_send![workspace, frontmostApplication];
+            if !frontmost.is_null() {
+                *self.app.lock().unwrap() = Some(frontmost);
+            }
+        }
+    }
+
+    /// Restore focus to the previously captured application
+    pub fn restore(&self) {
+        use objc::{msg_send, sel, sel_impl};
+        let app = self.app.lock().unwrap().take();
+        if let Some(prev_app) = app {
+            unsafe {
+                let _: () = msg_send![prev_app, activateWithOptions: 1u64]; // NSApplicationActivateIgnoringOtherApps = 1
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe impl Send for PreviousAppState {}
+#[cfg(target_os = "macos")]
+unsafe impl Sync for PreviousAppState {}
 
 #[cfg(target_os = "macos")]
 pub trait WebviewWindowExt {
@@ -214,12 +261,29 @@ pub async fn show_window_internal<R: Runtime>(app: tauri::AppHandle<R>) -> Resul
     #[cfg(target_os = "macos")]
     {
         use crate::window::WebviewWindowExt;
+
+        // Capture the previous frontmost app before we take focus
+        if let Some(prev_app_state) = app.try_state::<PreviousAppState>() {
+            prev_app_state.capture();
+        }
+
         if let Ok(panel) = app.get_webview_panel(MAIN_WINDOW_LABEL) {
             if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
                 let _ = window.center_at_cursor_monitor();
             }
-            panel.show();
-            panel.make_key_window();
+            // AppKit operations must run on the main thread
+            app.run_on_main_thread(move || {
+                use objc::{msg_send, sel, sel_impl, class};
+
+                // Activate the application to receive focus (required for accessory apps)
+                unsafe {
+                    let ns_app: cocoa::base::id = msg_send![class!(NSApplication), sharedApplication];
+                    let _: () = msg_send![ns_app, activateIgnoringOtherApps: true];
+                }
+
+                panel.show();
+                panel.make_key_window();
+            }).map_err(|e| e.to_string())?;
             return Ok(());
         }
     }
@@ -246,8 +310,20 @@ pub async fn show_window<R: Runtime>(
 pub async fn hide_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
+        // Get the previous app state before hiding
+        let prev_app_state = app.try_state::<PreviousAppState>();
+
         if let Ok(panel) = app.get_webview_panel(MAIN_WINDOW_LABEL) {
-            panel.order_out(None);
+            // AppKit operations must run on the main thread
+            app.run_on_main_thread(move || {
+                panel.order_out(None);
+            }).map_err(|e| e.to_string())?;
+
+            // Restore focus to the previous app
+            if let Some(state) = prev_app_state {
+                state.restore();
+            }
+
             return Ok(());
         }
     }
@@ -268,9 +344,23 @@ pub async fn toggle_window_internal<R: Runtime>(
     {
         use crate::window::WebviewWindowExt;
         if let Ok(panel) = app.get_webview_panel(MAIN_WINDOW_LABEL) {
-            if panel.is_visible() {
-                panel.order_out(None);
+            // Check visibility before running on main thread
+            let is_visible = panel.is_visible();
+
+            if is_visible {
+                // Closing - get previous app state for restoration
+                let prev_app_state = app.try_state::<PreviousAppState>();
+
+                app.run_on_main_thread(move || {
+                    panel.order_out(None);
+                }).map_err(|e| e.to_string())?;
+
+                // Restore focus to previous app
+                if let Some(state) = prev_app_state {
+                    state.restore();
+                }
             } else {
+<<<<<<< Updated upstream
                 // Save the currently focused app before showing Yoink
                 if save_previous_app {
                     if let Some(previous_app_state) =
@@ -279,12 +369,31 @@ pub async fn toggle_window_internal<R: Runtime>(
                         previous_app_state.save_previous_app();
                     }
                 }
+=======
+                // Opening - capture the current frontmost app first
+                if let Some(prev_app_state) = app.try_state::<PreviousAppState>() {
+                    prev_app_state.capture();
+                }
+
+>>>>>>> Stashed changes
                 if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
                     let _ = window.center_at_cursor_monitor();
                 }
-                panel.show();
-                panel.make_key_window();
+
+                app.run_on_main_thread(move || {
+                    use objc::{msg_send, sel, sel_impl, class};
+
+                    // Activate the application to receive focus (required for accessory apps)
+                    unsafe {
+                        let ns_app: cocoa::base::id = msg_send![class!(NSApplication), sharedApplication];
+                        let _: () = msg_send![ns_app, activateIgnoringOtherApps: true];
+                    }
+
+                    panel.show();
+                    panel.make_key_window();
+                }).map_err(|e| e.to_string())?;
             }
+
             return Ok(());
         }
     }
