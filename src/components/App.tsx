@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { SearchBar } from './SearchBar';
 import { ClipboardList } from './ClipboardList';
 import { PinnedSection } from './PinnedSection';
@@ -10,6 +11,7 @@ import { useClipboardMonitor } from '@/hooks/useClipboardMonitor';
 import { useKeyboardNav } from '@/hooks/useKeyboardNav';
 import { useGlobalHotkey } from '@/hooks/useGlobalHotkey';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useClipboardStore } from '@/stores/clipboardStore';
 import { useProStore } from '@/stores/proStore';
 import { useHotkeyModeStore } from '@/stores/hotkeyModeStore';
 import clsx from 'clsx';
@@ -22,6 +24,7 @@ export default function App() {
 
   const { settings, loadSettings, setupListeners: setupSettingsListeners, applyTheme } =
     useSettingsStore();
+  const { selectNext } = useClipboardStore();
   const { checkAuth } = useProStore();
   const { isHotkeyMode, setupListeners: setupHotkeyModeListeners } = useHotkeyModeStore();
 
@@ -32,6 +35,7 @@ export default function App() {
 
     let cleanupSettings: (() => void) | undefined;
     let cleanupHotkeyMode: (() => void) | undefined;
+    let cleanupHotkeyCycle: (() => void) | undefined;
 
     setupSettingsListeners().then((unsub) => {
       cleanupSettings = unsub;
@@ -39,6 +43,14 @@ export default function App() {
 
     setupHotkeyModeListeners().then((unsub) => {
       cleanupHotkeyMode = unsub;
+    });
+
+    // Listen for hotkey-cycle event from backend (when user presses V while in hotkey mode)
+    listen('hotkey-cycle', () => {
+      console.log('[HotkeyMode] Received hotkey-cycle event, selecting next');
+      selectNext();
+    }).then((unsub) => {
+      cleanupHotkeyCycle = unsub;
     });
 
     // Apply theme immediately
@@ -54,9 +66,10 @@ export default function App() {
     return () => {
       cleanupSettings?.();
       cleanupHotkeyMode?.();
+      cleanupHotkeyCycle?.();
       window.removeEventListener('blur', handleBlur);
     };
-  }, [loadSettings, checkAuth, setupSettingsListeners, setupHotkeyModeListeners, applyTheme]);
+  }, [loadSettings, checkAuth, setupSettingsListeners, setupHotkeyModeListeners, applyTheme, selectNext]);
 
   return (
     <div

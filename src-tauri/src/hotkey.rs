@@ -34,6 +34,19 @@ impl HotkeyManager {
 
                 let app = app_clone.clone();
                 tauri::async_runtime::spawn(async move {
+                    // Check if we're already in hotkey mode (user cycling through items)
+                    let in_hotkey_mode = if let Some(hotkey_state) = app.try_state::<HotkeyModeState>() {
+                        hotkey_state.is_active()
+                    } else {
+                        false
+                    };
+
+                    if in_hotkey_mode {
+                        // Already in hotkey mode - emit cycle event instead of toggling
+                        let _ = app.emit("hotkey-cycle", ());
+                        return;
+                    }
+
                     // Check if window is currently hidden (opening mode)
                     let is_opening = {
                         #[cfg(target_os = "macos")]
