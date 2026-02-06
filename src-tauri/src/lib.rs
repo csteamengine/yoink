@@ -29,7 +29,7 @@ use tauri::{
 };
 
 #[cfg(target_os = "macos")]
-use tauri::{ActivationPolicy, Emitter};
+use tauri::ActivationPolicy;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -105,12 +105,10 @@ pub fn run() {
                     const MASK_COMMAND: u64 = 0x100000;
                     const MASK_SHIFT: u64 = 0x20000;
 
-                    // macOS virtual key codes
+                    // macOS virtual key code for Escape
                     const VK_ESCAPE: u16 = 53;
-                    const VK_V: u16 = 9;
 
                     let mut was_active = false;
-                    let mut v_was_pressed = false;
 
                     loop {
                         // Poll every 30ms - fast enough to feel instant
@@ -121,14 +119,23 @@ pub fn run() {
                             .try_state::<HotkeyModeState>()
                             .map_or(false, |s| s.is_active());
 
-                        if is_active && !was_active {
-                            // Just entered hotkey mode - V is likely still held from activation
-                            v_was_pressed = true;
+                        // Re-register global shortcut when hotkey mode exits
+                        // (it was unregistered on enter so V reaches the webview)
+                        if !is_active && was_active {
+                            if let Some(hotkey_mgr) =
+                                app_handle.try_state::<HotkeyManager>()
+                            {
+                                if let Some(settings_mgr) =
+                                    app_handle.try_state::<SettingsManager>()
+                                {
+                                    let hotkey = settings_mgr.get().hotkey.clone();
+                                    let _ = hotkey_mgr.register(&app_handle, &hotkey);
+                                }
+                            }
                         }
                         was_active = is_active;
 
                         if !is_active {
-                            v_was_pressed = false;
                             continue;
                         }
 
@@ -153,18 +160,8 @@ pub fn run() {
                             tauri::async_runtime::spawn(async move {
                                 let _ = crate::window::hide_window(app).await;
                             });
-                            v_was_pressed = false;
                             continue;
                         }
-
-                        // Check V key for cycling (edge-detect: only on new press)
-                        let v_pressed = unsafe {
-                            CGEventSourceKeyState(1, VK_V)
-                        };
-                        if v_pressed && !v_was_pressed {
-                            let _ = app_handle.emit("hotkey-cycle", ());
-                        }
-                        v_was_pressed = v_pressed;
 
                         // Query physical modifier key state from HID system
                         let (cmd_held, shift_held) = unsafe {

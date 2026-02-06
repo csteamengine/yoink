@@ -43,11 +43,8 @@ impl HotkeyManager {
                     };
 
                     if in_hotkey_mode {
-                        // Already in hotkey mode - emit cycle event to advance selection.
-                        // The polling thread also detects V via CGEventSourceKeyState
-                        // for cases where only Cmd or Shift is held; the frontend
-                        // deduplicates rapid cycle events.
-                        let _ = app.emit("hotkey-cycle", ());
+                        // Shortcut is supposed to be unregistered during hotkey mode,
+                        // but just in case, swallow it to prevent window toggle.
                         return;
                     }
 
@@ -86,6 +83,12 @@ impl HotkeyManager {
                             }
                         }
                         let _ = app.emit("hotkey-mode-started", ());
+
+                        // Unregister global shortcut so V keydown events reach
+                        // the webview for cycling. Re-registered when hotkey mode exits.
+                        if let Some(hotkey_mgr) = app.try_state::<HotkeyManager>() {
+                            let _ = hotkey_mgr.unregister(&app);
+                        }
                     }
 
                     // Toggle window visibility
