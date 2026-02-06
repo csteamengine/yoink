@@ -29,7 +29,7 @@ use tauri::{
 };
 
 #[cfg(target_os = "macos")]
-use tauri::ActivationPolicy;
+use tauri::{ActivationPolicy, Emitter};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -98,11 +98,19 @@ pub fn run() {
                 std::thread::spawn(move || {
                     extern "C" {
                         fn CGEventSourceFlagsState(stateID: u32) -> u64;
+                        fn CGEventSourceKeyState(stateID: u32, key: u16) -> bool;
                     }
 
                     // kCGEventFlagMaskCommand and kCGEventFlagMaskShift
                     const MASK_COMMAND: u64 = 0x100000;
                     const MASK_SHIFT: u64 = 0x20000;
+
+                    // macOS virtual key codes
+                    const VK_ESCAPE: u16 = 53;
+                    const VK_V: u16 = 9;
+
+                    let mut was_active = false;
+                    let mut v_was_pressed = false;
 
                     loop {
                         // Poll every 30ms - fast enough to feel instant
@@ -113,9 +121,50 @@ pub fn run() {
                             .try_state::<HotkeyModeState>()
                             .map_or(false, |s| s.is_active());
 
+                        if is_active && !was_active {
+                            // Just entered hotkey mode - V is likely still held from activation
+                            v_was_pressed = true;
+                        }
+                        was_active = is_active;
+
                         if !is_active {
+                            v_was_pressed = false;
                             continue;
                         }
+
+                        // Check ESC key - cancel hotkey mode without pasting
+                        // This works regardless of which modifiers are held
+                        let esc_pressed = unsafe {
+                            CGEventSourceKeyState(1, VK_ESCAPE)
+                        };
+                        if esc_pressed {
+                            if let Some(hotkey_state) =
+                                app_handle.try_state::<HotkeyModeState>()
+                            {
+                                hotkey_state.exit();
+                            }
+                            // Clear selected item to prevent paste
+                            if let Some(selected_state) =
+                                app_handle.try_state::<SelectedItemState>()
+                            {
+                                selected_state.take();
+                            }
+                            let app = app_handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let _ = crate::window::hide_window(app).await;
+                            });
+                            v_was_pressed = false;
+                            continue;
+                        }
+
+                        // Check V key for cycling (edge-detect: only on new press)
+                        let v_pressed = unsafe {
+                            CGEventSourceKeyState(1, VK_V)
+                        };
+                        if v_pressed && !v_was_pressed {
+                            let _ = app_handle.emit("hotkey-cycle", ());
+                        }
+                        v_was_pressed = v_pressed;
 
                         // Query physical modifier key state from HID system
                         let (cmd_held, shift_held) = unsafe {
@@ -125,14 +174,19 @@ pub fn run() {
                         };
 
                         if !cmd_held && !shift_held {
-                            // Brief delay to allow ESC/Enter to exit hotkey mode first
+                            // Brief delay to allow ESC to cancel
                             std::thread::sleep(std::time::Duration::from_millis(50));
+
+                            // Check ESC one more time after grace period
+                            let esc_after = unsafe {
+                                CGEventSourceKeyState(1, VK_ESCAPE)
+                            };
 
                             // All modifiers released - re-check after delay
                             if let Some(hotkey_state) =
                                 app_handle.try_state::<HotkeyModeState>()
                             {
-                                if hotkey_state.is_active() {
+                                if hotkey_state.is_active() && !esc_after {
                                     // Exit hotkey mode immediately to prevent re-entrance
                                     hotkey_state.exit();
 
@@ -160,6 +214,18 @@ pub fn run() {
                                             });
                                         }
                                     }
+                                } else if esc_after && hotkey_state.is_active() {
+                                    // ESC pressed during grace period - cancel
+                                    hotkey_state.exit();
+                                    if let Some(selected_state) =
+                                        app_handle.try_state::<SelectedItemState>()
+                                    {
+                                        selected_state.take();
+                                    }
+                                    let app = app_handle.clone();
+                                    tauri::async_runtime::spawn(async move {
+                                        let _ = crate::window::hide_window(app).await;
+                                    });
                                 }
                             }
                         }

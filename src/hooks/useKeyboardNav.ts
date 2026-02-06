@@ -56,16 +56,9 @@ export function useKeyboardNav() {
         return;
       }
 
-      // In hotkey mode, V key cycles to next item (handles Cmd-only or Shift-only cases)
-      if (isHotkeyMode && e.key.toLowerCase() === 'v') {
-        e.preventDefault();
-        selectNext();
-        // Sync selection to backend for modifier-release paste
-        const state = useClipboardStore.getState();
-        const item = state.items[state.selectedIndex];
-        if (item) invoke('set_selected_item', { id: item.id });
-        return;
-      }
+      // V cycling in hotkey mode is handled by the backend polling thread
+      // (CGEventSourceKeyState) which emits 'hotkey-cycle' events.
+      // This avoids issues with the webview losing key window status.
 
       // If settings is open, don't handle other keys
       if (isSettingsOpen) return;
