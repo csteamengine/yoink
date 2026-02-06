@@ -1,5 +1,5 @@
 use tauri::{AppHandle, Emitter, Manager, Runtime};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 #[cfg(target_os = "macos")]
 use tauri_nspanel::ManagerExt;
@@ -26,7 +26,12 @@ impl HotkeyManager {
         let app_clone = app.clone();
 
         app.global_shortcut()
-            .on_shortcut(shortcut.clone(), move |_app, _shortcut, _event| {
+            .on_shortcut(shortcut.clone(), move |_app, _shortcut, event| {
+                // Only handle key press, not key release
+                if event.state != ShortcutState::Pressed {
+                    return;
+                }
+
                 let app = app_clone.clone();
                 tauri::async_runtime::spawn(async move {
                     // Check if window is currently hidden (opening mode)
