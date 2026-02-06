@@ -43,9 +43,11 @@ impl HotkeyManager {
                     };
 
                     if in_hotkey_mode {
-                        // Already in hotkey mode - V cycling is handled by the
-                        // modifier-release polling thread via CGEventSourceKeyState.
-                        // Just swallow the shortcut to prevent window toggle.
+                        // Already in hotkey mode - emit cycle event to advance selection.
+                        // The polling thread also detects V via CGEventSourceKeyState
+                        // for cases where only Cmd or Shift is held; the frontend
+                        // deduplicates rapid cycle events.
+                        let _ = app.emit("hotkey-cycle", ());
                         return;
                     }
 

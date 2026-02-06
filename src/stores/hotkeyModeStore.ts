@@ -43,8 +43,14 @@ export const useHotkeyModeStore = create<HotkeyModeState>((set, get) => ({
     });
 
     // Listen for hotkey-cycle event (V pressed again while holding modifiers)
+    // Both the global shortcut handler and the backend polling thread can emit
+    // this event for the same V press, so deduplicate within a short window.
+    let lastCycleTime = 0;
     const unlistenCycle = await listen('hotkey-cycle', () => {
       if (!get().isHotkeyMode) return;
+      const now = Date.now();
+      if (now - lastCycleTime < 100) return;
+      lastCycleTime = now;
       console.log('[HotkeyMode] Cycling to next item');
       const { selectNext } = useClipboardStore.getState();
       selectNext();
