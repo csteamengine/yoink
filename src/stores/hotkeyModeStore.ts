@@ -38,7 +38,11 @@ export const useHotkeyModeStore = create<HotkeyModeState>((set, get) => ({
 
   // Unified cycle handler with dedup - called from hotkey-cycle events AND frontend keydown
   cycleNext: () => {
-    if (!get().isHotkeyMode) return;
+    if (!get().isHotkeyMode) {
+      // If a backend hotkey-cycle event arrives before we entered hotkey mode,
+      // sync state and continue instead of dropping the cycle.
+      set({ isHotkeyMode: true });
+    }
     const now = Date.now();
     if (now - lastCycleTime < 100) return;
     lastCycleTime = now;
