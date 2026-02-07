@@ -561,8 +561,13 @@ pub fn enter_hotkey_mode(hotkey_state: tauri::State<'_, HotkeyModeState>) {
 }
 
 #[tauri::command]
-pub fn exit_hotkey_mode(hotkey_state: tauri::State<'_, HotkeyModeState>) {
+pub fn exit_hotkey_mode(
+    hotkey_state: tauri::State<'_, HotkeyModeState>,
+    selected_state: tauri::State<'_, SelectedItemState>,
+) {
     hotkey_state.exit();
+    // Clear selected item to prevent modifier-release paste after cancel.
+    selected_state.take();
 }
 
 #[tauri::command]

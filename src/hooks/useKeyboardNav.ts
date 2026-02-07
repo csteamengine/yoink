@@ -35,12 +35,10 @@ export function useKeyboardNav() {
       if (e.key === 'Escape') {
         if (isHotkeyMode) {
           exitHotkeyMode();
-          // Exit backend hotkey mode immediately to prevent the modifier-release
-          // poller from pasting after we hide the window
-          invoke('exit_hotkey_mode');
-          await invoke('hide_window');
-          return;
         }
+        // Always exit backend hotkey mode to prevent modifier-release paste,
+        // even if frontend state is out of sync.
+        invoke('exit_hotkey_mode');
         if (isSettingsOpen) {
           closeSettings();
         } else {

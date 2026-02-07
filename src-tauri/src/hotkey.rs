@@ -43,8 +43,10 @@ impl HotkeyManager {
                     };
 
                     if in_hotkey_mode {
-                        // Shortcut is supposed to be unregistered during hotkey mode,
-                        // but just in case, swallow it to prevent window toggle.
+                        // While in hotkey mode, treat the shortcut as a cycle action.
+                        // This is a fallback for cases where the global shortcut isn't
+                        // unregistered quickly enough to let V keydown reach the webview.
+                        let _ = app.emit("hotkey-cycle", ());
                         return;
                     }
 
