@@ -574,3 +574,8 @@ pub fn exit_hotkey_mode(
 pub fn set_selected_item(state: tauri::State<'_, SelectedItemState>, id: String) {
     state.set(id);
 }
+
+#[tauri::command]
+pub fn is_hotkey_mode_active(hotkey_state: tauri::State<'_, HotkeyModeState>) -> bool {
+    hotkey_state.is_active()
+}

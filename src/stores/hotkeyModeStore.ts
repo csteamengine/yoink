@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { useClipboardStore } from './clipboardStore';
 
 interface HotkeyModeState {
@@ -67,6 +68,16 @@ export const useHotkeyModeStore = create<HotkeyModeState>((set, get) => ({
     const unlistenCycle = await listen('hotkey-cycle', () => {
       get().cycleNext();
     });
+
+    // If the frontend loaded after hotkey mode started, sync once on setup.
+    try {
+      const active = await invoke<boolean>('is_hotkey_mode_active');
+      if (active) {
+        get().enterHotkeyMode();
+      }
+    } catch {
+      // Ignore sync failures; normal events will still handle mode changes.
+    }
 
     return () => {
       unlistenHotkeyMode();

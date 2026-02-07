@@ -300,6 +300,7 @@ pub fn run() {
             window::enter_hotkey_mode,
             window::exit_hotkey_mode,
             window::set_selected_item,
+            window::is_hotkey_mode_active,
             // Settings commands
             settings::get_settings,
             settings::update_settings,
